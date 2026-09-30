@@ -8,6 +8,10 @@ by delivery region. Amul Stock Watch checks the products you care about, for eve
 pincode you care about, about once a minute, and notifies the right people as soon as
 something flips from out of stock to in stock.
 
+**[Try the live demo](https://nmtjn1997.github.io/amul-stock-watch/demo/)**: the real UI with sample
+data, right in the browser. Nothing is saved or sent. The watcher itself runs on your own
+machine (see Quick start).
+
 ![Watches: who is alerted for which product at which pincode](docs/images/watches.png)
 
 ## Features

@@ -928,12 +928,14 @@ function switchTab(name, push=true){
   if(!TAB_SLUG[name]) name="watches";
   document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
   document.querySelectorAll("main section[data-panel]").forEach(s=>s.hidden=s.dataset.panel!==name);
-  if(push){ const slug="/"+TAB_SLUG[name]; if(location.pathname!==slug){ try{ history.pushState({tab:name},"",slug); }catch(e){} } }
+  // The hosted demo (GitHub Pages) has no server routes, so it keeps the tab in the hash.
+  if(push&&window.AMUL_DEMO){ location.hash=TAB_SLUG[name]; }
+  else if(push){ const slug="/"+TAB_SLUG[name]; if(location.pathname!==slug){ try{ history.pushState({tab:name},"",slug); }catch(e){} } }
   if(name==="stock")loadStock();
   if(name==="notifs")loadNotifs(true);
   if(name==="controls")logInit(); else if(logState.following)logSetFollow(false);
 }
-function tabFromPath(){ const slug=(location.pathname||"/").replace(/^\/+|\/+$/g,""); return SLUG_TAB[slug]||"watches"; }
+function tabFromPath(){ const slug=window.AMUL_DEMO?location.hash.slice(1):(location.pathname||"/").replace(/^\/+|\/+$/g,""); return SLUG_TAB[slug]||"watches"; }
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
 window.addEventListener("popstate",()=>switchTab(tabFromPath(), false));
 
