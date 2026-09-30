@@ -932,8 +932,8 @@ async function render() {
 
 window.addEventListener("hashchange", render);
 (async function boot() {
-  try { CONFIG = await api("/api/config"); } catch { /* defaults */ }
-  await loadMe().catch(() => null);
+  const [cfg] = await Promise.all([api("/api/config").catch(() => null), loadMe().catch(() => null)]);
+  if (cfg) CONFIG = cfg;
   if (ME && !ME.watches.length && !location.hash.includes("settings") && !location.hash.includes("admin")) { location.hash = "#/setup"; }
   if (!ME && !/^#\/(login|signup)/.test(location.hash)) { location.hash = "#/signup"; }
   render();
