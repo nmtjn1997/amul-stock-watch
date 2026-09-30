@@ -374,7 +374,9 @@ function openWatch(w){
   (STATE.products||[]).forEach(p=>prodBox.appendChild(el("label",{},
     el("input",{type:"checkbox",value:p.alias}), el("span",{},p.label),
     el("span",{class:"rtype"},p.short||""))));
-  const picker=recipientPicker(w?w.recipients:(STATE.default_alerts||[]));
+  // Only a watch's own route is pre-ticked. A watch without one follows default_alerts,
+  // and ticking those names here would freeze a copy of the defaults into its route.
+  const picker=recipientPicker(w&&w.has_route?w.recipients:[]);
   if(w){addrSel.disabled=true;}
   showModal(isNew?"Add watch":"Edit watch", [
     isNew? el("label",{class:"field"},"Address (existing)", addrSel):null,
@@ -384,8 +386,8 @@ function openWatch(w){
     isNew? el("div",{class:"field"},"Products", prodBox,
        el("span",{class:"hint"},"Tick as many as you like. One watch is created per product, all with the notifiers below."))
          : el("label",{class:"field"},"Product", el("input",{value:w.product_label,disabled:"disabled"})),
-    el("div",{class:"field"},"Notify these recipients", picker,
-       el("span",{class:"hint"},"Tick every notifier that should get the back-in-stock alert. None ticked means default_alerts.")),
+    el("div",{class:"field"},"Notify", picker,
+       el("span",{class:"hint"},"Tick who gets the back-in-stock alert. Tick none to use the default notifiers ("+((STATE.default_alerts||[]).join(", ")||"none set")+").")),
   ].filter(Boolean), async()=>{
     let pincode = w? w.pincode : (addrSel.value || newPin.value.trim());
     const products = w? [w.alias] : [...prodBox.querySelectorAll("input:checked")].map(c=>c.value);
@@ -515,7 +517,8 @@ function renderRecipients(){
 const NOTIFIER_FORMS={
   email:[{key:"to",label:"Email addresses (comma separated)",list:true,ph:"you@example.com, family@example.com"}],
   ntfy:[{key:"topic",label:"Topic (make it long and random: anyone who knows it can subscribe)",ph:"amul-watch-7f3k2q"},
-        {key:"server",label:"Server (optional)",ph:"https://ntfy.sh"}],
+        {key:"server",label:"Server (optional)",ph:"https://ntfy.sh"},
+        {key:"token",label:"Access token (optional, protected topics only)",secret:"NTFY_TOKEN"}],
   telegram:[{key:"bot_token",label:"Bot token",secret:"TELEGRAM_BOT_TOKEN"},{key:"chat_id",label:"Chat id",ph:"123456789"}],
   discord:[{key:"url",label:"Webhook URL",secret:"DISCORD_WEBHOOK_URL"}],
   slack_webhook:[{key:"url",label:"Incoming webhook URL",secret:"SLACK_WEBHOOK_URL"}],
@@ -564,7 +567,9 @@ function renderNotifierBuilder(){
       input=el("input",{type:"checkbox",style:"width:auto",...(cfg[f.key]?{checked:"checked"}:{})});
       fields.appendChild(el("label",{class:"field",style:"flex-direction:row;gap:8px;align-items:center"},input,f.label));
     } else {
-      const val=cfg[f.key]; const shown=Array.isArray(val)?val.join(", "):(val??"");
+      const val=cfg[f.key];
+      // A command stored as a list is shown as one shell-style line and saved back as a string.
+      const shown=Array.isArray(val)?(f.key==="command"?val.map(a=>/[\s"']/.test(a)?'"'+a.replace(/(["\\])/g,"\\$1")+'"':a).join(" "):val.join(", ")):(val??"");
       input=el("input",{placeholder:f.secret?"${"+f.secret+"}":(f.ph||""),value:shown});
       fields.appendChild(el("label",{class:"field"},f.label,input,
         f.secret?el("span",{class:"hint"},"Tip: type ${"+f.secret+"} here and put "+f.secret+"=… in the .env file, so the secret stays out of the YAML."):null));

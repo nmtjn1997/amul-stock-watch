@@ -14,7 +14,7 @@ def pin_product_allow(cfg: dict[str, Any], pincode: str | None) -> set[str] | No
     """Per-pincode product allowlist from pincodes[].products, or None for "all products".
 
     This is what lets one person's pincode watch a different product set than another.
-    A pincode with only disabled_products (everything parked) polls nothing.
+    Only a missing `products` key means "all"; an empty list means "none".
     """
     if not pincode:
         return None
@@ -28,13 +28,8 @@ def pin_product_allow(cfg: dict[str, Any], pincode: str | None) -> set[str] | No
         if _normalize_pincode(loc.get("pincode")) != pin:
             continue
         raw = loc.get("products")
-        aliases = (
-            {resolve_product_alias(cfg, str(p)) for p in raw if str(p).strip()}
-            if isinstance(raw, list)
-            else set()
-        )
-        if aliases:
-            return aliases
+        if isinstance(raw, list):
+            return {resolve_product_alias(cfg, str(p)) for p in raw if str(p).strip()}
         if loc.get("disabled_products"):
             return set()
         return None

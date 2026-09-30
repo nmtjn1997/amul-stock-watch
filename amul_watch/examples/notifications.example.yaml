@@ -13,7 +13,7 @@ notifiers:
   browser:
     type: browser            # opens the product page
 
-  # phone:
+  # phone:                   # the quickest way to get alerts on your phone, no account
   #   type: ntfy             # install the ntfy app, subscribe to the same topic
   #   topic: amul-watch-change-me-to-something-random
 

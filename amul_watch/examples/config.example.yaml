@@ -5,8 +5,8 @@
 # Pincodes to check. A pincode is one delivery address; stock differs by region.
 #   label   private name, shown only in the UI (e.g. "Mum's place")
 #   short   public name used in alert messages (e.g. "Bangalore")
-#   products   optional allowlist of product short names for THIS pincode.
-#              Leave it out to watch every enabled product here.
+#   products   product short names watched at THIS pincode. Leave the key out to
+#              watch every enabled product; an empty list watches none.
 pincodes:
   - pincode: "110001"
     label: "Example address, replace me"
@@ -15,10 +15,10 @@ pincodes:
     products:
       - rose-lassi
 
-# Products to watch. `alias` is the last part of the product URL:
-#   https://shop.amul.com/en/product/<alias>
-# `short` is the name used in alert routes (notifications.yaml) and the CLI.
 watchlist:
+  # Products to watch. `alias` is the last part of the product URL:
+  #   https://shop.amul.com/en/product/<alias>
+  # `short` is the name used in alert routes (notifications.yaml) and the CLI.
   - alias: amul-high-protein-rose-lassi-200-ml-or-pack-of-30
     short: rose-lassi
     label: "High Protein Rose Lassi"

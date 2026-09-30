@@ -54,6 +54,9 @@ def _parse_query(path: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 def api_state(_body: dict[str, Any]) -> dict[str, Any]:
+    from amul_watch.config import reload_session_env
+
+    reload_session_env()  # so fixing a ${VAR} in .env clears "needs setup" without a restart
     return ce.get_state()
 
 
@@ -66,7 +69,8 @@ def api_watch(body: dict[str, Any]) -> dict[str, Any]:
     products = [str(p) for p in (body.get("products") or []) if str(p).strip()]
     if not products:
         products = [str(body.get("product") or "")]
-    recipients = list(body.get("recipients") or [])
+    recipients = body.get("recipients")
+    recipients = None if recipients is None else [str(r) for r in recipients]
     enabled = bool(body.get("enabled", True))
     results = [
         ce.upsert_watch(
@@ -126,25 +130,24 @@ def api_notifier(body: dict[str, Any]) -> dict[str, Any]:
         str(body.get("name") or ""),
         str(body.get("type") or ""),
         dict(body.get("config") or {}),
-        enabled=bool(body.get("enabled", True)),
+        enabled=None if "enabled" not in body else bool(body["enabled"]),
     )
     return {"ok": True, "notifier": res}
 
 
 def api_notifier_test(body: dict[str, Any]) -> dict[str, Any]:
     """Send a TEST message to one notifier, to check its settings."""
-    from amul_watch.config import load_config, load_session_env
+    from amul_watch import notifications as nf
+    from amul_watch.config import load_config, reload_session_env
     from amul_watch.notifiers import Alert, send
 
-    load_session_env()
+    reload_session_env()
     name = str(body.get("name") or "")
-    results = send(
-        load_config(),
-        [name],
-        Alert(kind="test", title="TEST from Amul Stock Watch",
-              message=f"TEST: notifier {name!r} works. Real alerts will look like the stock alerts.",
-              url="https://shop.amul.com/en/"),
-    )
+    alert = Alert(kind="test", title="TEST from Amul Stock Watch",
+                  message=f"TEST: notifier {name!r} works. Real alerts will look like the stock alerts.",
+                  url="https://shop.amul.com/en/", product="(notifier test)")
+    results = send(load_config(), [name], alert)
+    nf.record({**alert.as_dict(), "source": "test", "notifiers": [name], "results": results})
     return {"ok": results.get(name) == "ok", "results": results}
 
 
@@ -170,19 +173,45 @@ def api_normalize(_body: dict[str, Any]) -> dict[str, Any]:
 def api_poll(_body: dict[str, Any]) -> dict[str, Any]:
     """Force a live poll now: fetch fresh stock from Amul (not just re-read the DB).
 
+    Under `serve` this wakes the in-process poller and waits for its cycle, so there is
+    never a second poll competing with it. Under `ui` alone it runs one cycle inline.
+
     Runs one full poll cycle (same code the daemon runs), so it also triggers real
     alerts on a 0→in-stock flip (the DB alert gate dedups against the daemon) and the
     dead-session guard. Blocks for the length of one cycle (up to a minute).
     """
+    import time
+
+    from amul_watch import daemon
     from amul_watch.client import AmulClient
-    from amul_watch.config import DB_PATH, load_config, load_session_env
+    from amul_watch.config import CLI_COOKIE_JAR, DB_PATH, load_config, load_session_env
     from amul_watch.db import StockDB
     from amul_watch.poller import run_poll
     from amul_watch.session_guard import SessionGuard
 
+    if daemon.POLLER_RUNNING.is_set():
+        if daemon.is_paused():
+            raise ValueError("polling is paused: resume it first")
+        before = (daemon.watcher_state().get("last_poll") or {}).get("ts")
+        daemon.WAKE.set()
+        deadline = time.monotonic() + 180
+        beat: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            beat = daemon.watcher_state().get("last_poll") or {}
+            if beat.get("ts") != before and not beat.get("polling"):
+                break
+        return {
+            "ok": True,
+            "summary": {k: beat.get(k) for k in ("checks", "alerts")},
+            "errors": (beat.get("errors") or [])[:5],
+            "rows": ce.live_stock(),
+            "daemon": ce.daemon_state(),
+        }
+
     load_session_env()
     cfg = load_config()
-    client = AmulClient(cfg)
+    client = AmulClient(cfg, cookie_jar=CLI_COOKIE_JAR)
     db = StockDB(DB_PATH)
     guard = SessionGuard(client, cfg)
     summary = run_poll(client, db, cfg, guard=guard, alerts_enabled=True)
@@ -209,8 +238,9 @@ def api_simulate(body: dict[str, Any]) -> dict[str, Any]:
     import io
 
     from amul_watch import simulate as sim
-    from amul_watch.config import load_config
+    from amul_watch.config import load_config, reload_session_env
 
+    reload_session_env()
     pincode = str(body.get("pincode") or "").strip()
     product = str(body.get("product") or "").strip()
     dry_run = bool(body.get("dry_run", False))
@@ -331,6 +361,31 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _same_origin(self, method: str) -> bool:
+        """Block other web pages from driving this API from the user's browser.
+
+        Without a password the UI only answers to loopback host names, which defeats
+        DNS rebinding. Writes must be JSON (a cross-site form or no-cors fetch cannot send
+        that without a CORS preflight, which this server never grants) and, when the
+        browser sends an Origin, it must be this server's own.
+        """
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not os.environ.get("AMUL_WATCH_UI_PASSWORD"):
+            name = host.rsplit(":", 1)[0].strip("[]") if not host.startswith("[") else host[1:].split("]")[0]
+            allowed = {"127.0.0.1", "localhost", "::1"} | {
+                h.strip().lower() for h in os.environ.get("AMUL_WATCH_ALLOWED_HOSTS", "").split(",") if h.strip()
+            }
+            if name not in allowed and not name.endswith(".localhost"):
+                return False
+        if method == "POST":
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                return False
+            origin = (self.headers.get("Origin") or "").strip().lower()
+            if origin and origin.split("://", 1)[-1] != host:
+                return False
+        return True
+
     def _authorized(self) -> bool:
         password = os.environ.get("AMUL_WATCH_UI_PASSWORD", "")
         if not password:
@@ -341,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
                 _user, _, given = base64.b64decode(header[6:]).decode("utf-8").partition(":")
             except (ValueError, UnicodeDecodeError):
                 given = ""
-            if hmac.compare_digest(given, password):
+            if hmac.compare_digest(given.encode("utf-8"), password.encode("utf-8")):
                 return True
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="amul-watch"')
@@ -350,9 +405,15 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _dispatch(self, method: str) -> None:
+        path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        if path == "/healthz":  # for container health checks; reveals nothing
+            self._send_json({"ok": True})
+            return
+        if not self._same_origin(method):
+            self._send_json({"error": "forbidden: cross-site request or unknown Host"}, 403)
+            return
         if not self._authorized():
             return
-        path = self.path.split("?", 1)[0].rstrip("/") or "/"
         # SPA: any non-API GET (/, /live-stock, /notifications, deep links) serves the
         # app shell; the client router activates the right tab from the path.
         if method == "GET" and not path.startswith("/api"):

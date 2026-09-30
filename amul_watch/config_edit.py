@@ -21,7 +21,11 @@ Reads for resolution go through the same load_config() the engine uses.
 
 from __future__ import annotations
 
+import functools
+import os
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -73,14 +77,21 @@ def _rt_load(path: Path) -> Any:
 
 def _rt_save(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     if _HAVE_RUAMEL:
         with tmp.open("w", encoding="utf-8") as fh:
             _yaml.dump(data, fh)
     else:
         with tmp.open("w", encoding="utf-8") as fh:
             _pyyaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True, default_flow_style=False)
-    tmp.replace(path)
+    for attempt in range(5):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:  # Windows: the poller may have the file open for a moment
+            if attempt == 4:
+                raise
+            time.sleep(0.1)
 
 
 def _new_map() -> Any:
@@ -99,14 +110,6 @@ def _new_seq() -> Any:
     return []
 
 
-def _seq_add(seq: Any, value: str) -> None:
-    """Append value to a ruamel/list seq if not already present (comment-preserving)."""
-    if seq is None:
-        return
-    if value not in [str(p) for p in seq]:
-        seq.append(value)
-
-
 def _seq_remove(entry: Any, key: str, value: str) -> None:
     """Remove value from entry[key] in place, preserving other items' comments."""
     seq = entry.get(key)
@@ -115,6 +118,40 @@ def _seq_remove(entry: Any, key: str, value: str) -> None:
     keep = _new_seq()
     for p in seq:
         if str(p) != value:
+            keep.append(p)
+    entry[key] = keep
+
+
+# Every read-modify-write of the YAML files runs under this lock, so two UI requests
+# saving at once cannot lose one of the edits.
+_WRITE_LOCK = threading.RLock()
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _WRITE_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
+
+def _product_in(cfg: dict[str, Any], seq: Any, alias: str) -> bool:
+    """Product lists may hold short names or full aliases; compare what they resolve to."""
+    return any(resolve_product_alias(cfg, str(p)) == alias for p in (seq or []))
+
+
+def _product_add(cfg: dict[str, Any], seq: Any, alias: str) -> None:
+    if not _product_in(cfg, seq, alias):
+        seq.append(product_short(cfg, alias))
+
+
+def _product_remove(cfg: dict[str, Any], entry: Any, key: str, alias: str) -> None:
+    seq = entry.get(key)
+    if not seq:
+        return
+    keep = _new_seq()
+    for p in seq:
+        if resolve_product_alias(cfg, str(p)) != alias:
             keep.append(p)
     entry[key] = keep
 
@@ -196,7 +233,7 @@ def get_state() -> dict[str, Any]:
                 "name": str(name),
                 "type": str(spec.get("type") or ""),
                 "enabled": spec.get("enabled") is not False,
-                "config": {k: v for k, v in spec.items() if k not in ("type", "enabled")},
+                "config": _masked(spec),
                 "summary": describe_notifier(str(name), spec),
                 "problems": validate(spec),
             }
@@ -220,19 +257,25 @@ def get_state() -> dict[str, Any]:
             "route_key": f"{pin}:{short}",
             "enabled": enabled,
             "explicit": bool(addr["products"]),
+            # True when this watch has its own route; False means it follows default_alerts.
+            "has_route": any(k in (cfg.get("alerts") or {}) for k in (f"{pin}:{short}", f"{pin}:{alias}")),
         }
 
+    from amul_watch.watchlist_util import pin_product_allow
+
+    enabled_products = {p["alias"] for p in products if p["enabled"]}
     for addr in addresses:
         pin = addr["pincode"]
-        # products actually polled for this pin: explicit allowlist, else all enabled
-        if addr["products"]:
-            active_aliases = addr["products"]
-        else:
+        # Same rule the poller uses, so the UI never shows a watch that is not polled.
+        allow = pin_product_allow(cfg, pin)
+        if allow is None:
             active_aliases = [p["alias"] for p in products if p["enabled"]] if addr["enabled"] else []
+        else:
+            active_aliases = [a for a in addr["products"] if a in allow]
         seen_here: set[str] = set()
         for alias in active_aliases:
             seen_here.add(alias)
-            watches.append(_mk_watch(pin, addr, alias, addr["enabled"]))
+            watches.append(_mk_watch(pin, addr, alias, addr["enabled"] and alias in enabled_products))
         for alias in addr.get("disabled_products") or []:
             if alias in seen_here:
                 continue  # active list wins if somehow in both
@@ -363,10 +406,11 @@ def _recompute_global_product_flags(cfg_doc: Any) -> None:
     explicit user action; auto-disabling here would silently stop polling a product
     the moment another pin got an explicit list (incremental-edit hazard).
     """
+    cfg = load_config()
     used: set[str] = set()
     for loc in cfg_doc.get("pincodes") or []:
         for p in loc.get("products") or []:
-            used.add(str(p))
+            used.add(resolve_product_alias(cfg, str(p)))
     for item in cfg_doc.get("watchlist") or []:
         alias = str(item.get("alias") or "")
         if alias in used and item.get("enabled") is False:
@@ -378,23 +422,29 @@ def _set_pin_enabled_from_products(entry: Any) -> None:
     entry["enabled"] = bool(len(prods) > 0)
 
 
+@_locked
 def upsert_watch(
     pincode: str,
     product: str,
-    recipients: list[str],
+    recipients: list[str] | None,
     *,
     enabled: bool = True,
     address_label: str = "",
     address_short: str = "",
 ) -> dict[str, Any]:
-    """Create or update one watch (pincode + product -> recipients)."""
+    """Create or update one watch (pincode + product -> recipients).
+
+    recipients=None leaves the route alone; [] removes it so the watch follows
+    default_alerts; a list sets it.
+    """
     pin = _norm_pin(pincode)
     if not pin:
         raise ValueError(f"invalid pincode: {pincode!r}")
     cfg = load_config()
     alias = resolve_product_alias(cfg, product)
     short = product_short(cfg, alias)
-    recipients = [str(r).strip() for r in recipients if str(r).strip()]
+    if recipients is not None:
+        recipients = [str(r).strip() for r in recipients if str(r).strip()]
 
     # --- config.yaml: address + per-pin product allowlist + watchlist item ---
     cfg_doc = _rt_load(DEFAULT_CONFIG)
@@ -403,27 +453,38 @@ def upsert_watch(
         entry["products"] = _new_seq()
     if enabled:
         # active watch: ensure in products, remove from disabled_products (parked list)
-        _seq_add(entry["products"], alias)
-        _seq_remove(entry, "disabled_products", alias)
+        _product_add(cfg, entry["products"], alias)
+        _product_remove(cfg, entry, "disabled_products", alias)
     else:
         # disable ≠ delete: park the alias in disabled_products (kept in config, not polled)
-        _seq_remove(entry, "products", alias)
+        _product_remove(cfg, entry, "products", alias)
         if "disabled_products" not in entry or entry.get("disabled_products") is None:
             entry["disabled_products"] = _new_seq()
-        _seq_add(entry["disabled_products"], alias)
+        _product_add(cfg, entry["disabled_products"], alias)
     _set_pin_enabled_from_products(entry)
     _ensure_watchlist_item(cfg_doc, alias)
     _recompute_global_product_flags(cfg_doc)
     _rt_save(DEFAULT_CONFIG, cfg_doc)
 
     # --- notifications.yaml: recipients route (skip if unchanged to keep comments) ---
-    if recipients:
+    if recipients is not None:
         notes_doc = _rt_load(NOTIFICATIONS_CONFIG)
         if "alerts" not in notes_doc or notes_doc.get("alerts") is None:
             notes_doc["alerts"] = _new_map()
-        key = f"{pin}:{short}"
-        _set_route(notes_doc["alerts"], key, recipients)
-        _rt_save(NOTIFICATIONS_CONFIG, notes_doc)
+        alerts = notes_doc["alerts"]
+        changed = False
+        if recipients:
+            changed = _set_route(alerts, f"{pin}:{short}", recipients)
+            if f"{pin}:{alias}" in alerts and alias != short:
+                del alerts[f"{pin}:{alias}"]
+                changed = True
+        else:
+            for key in (f"{pin}:{short}", f"{pin}:{alias}"):
+                if key in alerts:
+                    del alerts[key]
+                    changed = True
+        if changed:
+            _rt_save(NOTIFICATIONS_CONFIG, notes_doc)
 
     return {"pincode": pin, "alias": alias, "short": short, "enabled": enabled, "recipients": recipients}
 
@@ -447,6 +508,7 @@ def _set_route(alerts: Any, key: str, recipients: list[str]) -> bool:
     return True
 
 
+@_locked
 def delete_watch(pincode: str, product: str) -> dict[str, Any]:
     pin = _norm_pin(pincode)
     cfg = load_config()
@@ -457,8 +519,8 @@ def delete_watch(pincode: str, product: str) -> dict[str, Any]:
     entry = _find_pincode_entry(cfg_doc, pin)
     if entry is not None:
         # full removal: drop from both the active and the parked (disabled) lists
-        _seq_remove(entry, "products", alias)
-        _seq_remove(entry, "disabled_products", alias)
+        _product_remove(cfg, entry, "products", alias)
+        _product_remove(cfg, entry, "disabled_products", alias)
         _set_pin_enabled_from_products(entry)
     _recompute_global_product_flags(cfg_doc)
     _rt_save(DEFAULT_CONFIG, cfg_doc)
@@ -472,12 +534,12 @@ def delete_watch(pincode: str, product: str) -> dict[str, Any]:
     return {"pincode": pin, "alias": alias, "deleted": True}
 
 
+@_locked
 def set_watch_enabled(pincode: str, product: str, enabled: bool) -> dict[str, Any]:
-    cfg = load_config()
-    names = resolve_channel_names(cfg, _norm_pin(pincode), resolve_product_alias(cfg, product))
-    return upsert_watch(pincode, product, names, enabled=enabled)
+    return upsert_watch(pincode, product, None, enabled=enabled)
 
 
+@_locked
 def populate_disabled_watches() -> dict[str, Any]:
     """Ensure every address × known product exists as a watch.
 
@@ -495,15 +557,15 @@ def populate_disabled_watches() -> dict[str, Any]:
         pin = _norm_pin(loc.get("pincode"))
         if not pin:
             continue
-        active = {str(p) for p in (loc.get("products") or [])}
-        parked = {str(p) for p in (loc.get("disabled_products") or [])}
+        active = {resolve_product_alias(cfg, str(p)) for p in (loc.get("products") or [])}
+        parked = {resolve_product_alias(cfg, str(p)) for p in (loc.get("disabled_products") or [])}
         missing = [a for a in product_aliases if a not in active and a not in parked]
         if not missing:
             continue
         if "disabled_products" not in loc or loc.get("disabled_products") is None:
             loc["disabled_products"] = _new_seq()
         for alias in missing:
-            loc["disabled_products"].append(alias)
+            loc["disabled_products"].append(product_short(cfg, alias))
             added += 1
         pins_touched += 1
     if added:
@@ -515,6 +577,7 @@ def populate_disabled_watches() -> dict[str, Any]:
 # Address / product / recipient CRUD
 # --------------------------------------------------------------------------- #
 
+@_locked
 def upsert_address(pincode: str, label: str = "", short: str = "", enabled: bool | None = None) -> dict[str, Any]:
     pin = _norm_pin(pincode)
     if not pin:
@@ -531,6 +594,7 @@ def upsert_address(pincode: str, label: str = "", short: str = "", enabled: bool
     return {"pincode": pin, "label": entry.get("label"), "short": entry.get("short")}
 
 
+@_locked
 def delete_address(pincode: str) -> dict[str, Any]:
     pin = _norm_pin(pincode)
     cfg_doc = _rt_load(DEFAULT_CONFIG)
@@ -550,6 +614,7 @@ def delete_address(pincode: str) -> dict[str, Any]:
     return {"pincode": pin, "deleted": True}
 
 
+@_locked
 def upsert_product(alias_or_short: str, label: str = "", short: str = "", enquiry_name: str = "") -> dict[str, Any]:
     """Add or edit a product. `alias` is the slug in the shop URL: shop.amul.com/en/product/<alias>."""
     cfg = load_config()
@@ -573,20 +638,64 @@ def upsert_product(alias_or_short: str, label: str = "", short: str = "", enquir
     return {"alias": alias, "short": item.get("short") or alias, "label": item.get("label")}
 
 
-def upsert_notifier(name: str, ntype: str, fields: dict[str, Any] | None = None, *, enabled: bool = True) -> dict[str, Any]:
-    """Create or replace one notifier. `fields` are the type's settings (see notifiers.py)."""
+# Settings that are secrets. The UI gets them masked unless they are ${VAR} references,
+# and saving the mask back keeps the stored value.
+SECRET_KEYS = {"token", "bot_token", "password"}
+SECRET_URL_TYPES = {"slack_webhook", "discord"}
+MASK = "********"
+
+
+def _is_secret(ntype: str, key: str) -> bool:
+    return key in SECRET_KEYS or (key == "url" and ntype in SECRET_URL_TYPES)
+
+
+def _masked(spec: dict[str, Any]) -> dict[str, Any]:
+    ntype = str(spec.get("type") or "")
+    out: dict[str, Any] = {}
+    for key, value in spec.items():
+        if key in ("type", "enabled"):
+            continue
+        if _is_secret(ntype, key) and isinstance(value, str) and value and not value.startswith("${"):
+            out[key] = MASK
+        else:
+            out[key] = value
+    return out
+
+
+@_locked
+def upsert_notifier(
+    name: str, ntype: str, fields: dict[str, Any] | None = None, *, enabled: bool | None = None
+) -> dict[str, Any]:
+    """Create a notifier, or update one in place.
+
+    Only the keys present in `fields` change (an empty value removes that key), so
+    settings the UI form does not show, like webhook headers, survive an edit.
+    enabled=None keeps the current state.
+    """
     name = str(name).strip()
     ntype = str(ntype).strip().lower()
     if not name:
         raise ValueError("notifier name required")
     if ntype not in NOTIFIER_TYPES:
         raise ValueError(f"unknown notifier type {ntype!r} (known: {', '.join(NOTIFIER_TYPES)})")
-    spec = _new_map()
-    spec["type"] = ntype
+    notes_doc = _rt_load(NOTIFICATIONS_CONFIG)
+    if notes_doc.get("notifiers") is None:
+        notes_doc["notifiers"] = _new_map()
+    existing = notes_doc["notifiers"].get(name)
+    if existing is not None and str(existing.get("type") or "") == ntype:
+        spec = existing
+    else:
+        spec = _new_map()
+        spec["type"] = ntype
     for key, value in (fields or {}).items():
-        if key in ("type", "name") or value in (None, "", []):
+        if key in ("type", "name", "enabled"):
             continue
-        if isinstance(value, list):
+        if value == MASK:
+            continue  # unchanged secret shown masked in the UI
+        if value in (None, "", [], False):
+            if key in spec:
+                del spec[key]
+        elif isinstance(value, list):
             seq = _new_seq()
             for v in value:
                 if str(v).strip():
@@ -594,28 +703,41 @@ def upsert_notifier(name: str, ntype: str, fields: dict[str, Any] | None = None,
             spec[key] = seq
         else:
             spec[key] = value
-    if not enabled:
+    if enabled is True and "enabled" in spec:
+        del spec["enabled"]
+    elif enabled is False:
         spec["enabled"] = False
     problems = validate(dict(spec), resolve=False)
     if problems:
         raise ValueError(f"notifier {name!r}: " + "; ".join(problems))
-    notes_doc = _rt_load(NOTIFICATIONS_CONFIG)
-    if notes_doc.get("notifiers") is None:
-        notes_doc["notifiers"] = _new_map()
     notes_doc["notifiers"][name] = spec
     _rt_save(NOTIFICATIONS_CONFIG, notes_doc)
     return {"name": name, "type": ntype}
 
 
+@_locked
 def delete_notifier(name: str) -> dict[str, Any]:
+    """Remove a notifier and every reference to it. A route left empty is removed, so
+    those watches follow default_alerts."""
     notes_doc = _rt_load(NOTIFICATIONS_CONFIG)
     notifiers = notes_doc.get("notifiers") or {}
     if name in notifiers:
         del notifiers[name]
-        _rt_save(NOTIFICATIONS_CONFIG, notes_doc)
+    alerts = notes_doc.get("alerts") or {}
+    for key in list(alerts.keys()):
+        seq = alerts[key]
+        if isinstance(seq, list) and name in [str(x) for x in seq]:
+            _seq_remove(alerts, key, name)
+            if not alerts[key]:
+                del alerts[key]
+    for key in ("default_alerts", "system_alerts", "qty_update_alerts"):
+        if isinstance(notes_doc.get(key), list):
+            _seq_remove(notes_doc, key, name)
+    _rt_save(NOTIFICATIONS_CONFIG, notes_doc)
     return {"name": name, "deleted": True}
 
 
+@_locked
 def set_name_list(key: str, names: list[str]) -> dict[str, Any]:
     """default_alerts, system_alerts or qty_update_alerts."""
     if key not in ("default_alerts", "system_alerts", "qty_update_alerts"):
@@ -630,6 +752,7 @@ def set_name_list(key: str, names: list[str]) -> dict[str, Any]:
     return {key: [str(n) for n in seq]}
 
 
+@_locked
 def normalize_watches() -> dict[str, Any]:
     """One-time: give every enabled pincode an explicit per-pin products[] list
     derived from its existing routes (falls back to all globally-enabled products).

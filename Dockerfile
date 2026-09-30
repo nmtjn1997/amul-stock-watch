@@ -18,7 +18,7 @@ VOLUME /data
 EXPOSE 8847
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s \
-  CMD curl -fsS -o /dev/null http://127.0.0.1:8847/api/state -u "x:${AMUL_WATCH_UI_PASSWORD}" || exit 1
+  CMD curl -fsS -o /dev/null http://127.0.0.1:8847/healthz || exit 1
 
 # First start creates /data/config.yaml etc. from the examples; later starts keep them.
 CMD ["sh", "-c", "amul-watch init >/dev/null && exec amul-watch serve --no-open"]
