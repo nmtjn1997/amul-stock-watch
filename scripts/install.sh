@@ -29,10 +29,10 @@ else
   VENV="${XDG_DATA_HOME:-$HOME/.local/share}/amul-watch/venv"
   "$PY" -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --upgrade pip
+  "$VENV/bin/pip" install --quiet --upgrade --force-reinstall --no-deps "$SRC"
   "$VENV/bin/pip" install --quiet "$SRC"
   mkdir -p "$HOME/.local/bin"
   ln -sf "$VENV/bin/amul-watch" "$HOME/.local/bin/amul-watch"
-  case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH";; esac
 fi
 
 AW="$(command -v amul-watch || echo "$HOME/.local/bin/amul-watch")"
@@ -42,4 +42,4 @@ echo "Installed: $AW"
 echo "Next:"
 echo "  $AW serve              # web UI + poller, opens http://127.0.0.1:8847"
 echo "  $AW service install    # keep it running in the background after login"
-command -v amul-watch >/dev/null 2>&1 || echo "(open a new terminal, or add $(dirname "$AW") to PATH, to type just amul-watch)"
+command -v amul-watch >/dev/null 2>&1 || echo "(open a new terminal to type just amul-watch; if it is still not found, add $(dirname "$AW") to PATH)"

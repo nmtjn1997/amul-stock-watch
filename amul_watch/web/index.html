@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#171b21" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Amul Watch" />
 <title>Amul Stock Watch</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0 0 24 24'%3E%3Crect%20width='24'%20height='24'%20rx='5'%20fill='%23e4022b'/%3E%3Cpath%20d='M12 3.5C12 3.5 7 9 7 13a5 5 0 0 0 10 0c0-4-5-9.5-5-9.5z'%20fill='%23fff'/%3E%3C/svg%3E" />
 
@@ -107,7 +111,56 @@
           border:1px solid var(--line);border-radius:10px;padding:11px 13px;white-space:pre-wrap;color:var(--muted);
           max-height:200px;overflow:auto}
   .ctrlgrid{display:flex;gap:8px;flex-wrap:wrap}
-  @media (max-width:640px){ th.hide-sm,td.hide-sm{display:none} main{padding:14px 12px 60px} header{padding:12px 14px} }
+  td.mono,.logbox{overflow-wrap:anywhere}
+  /* ---------- phones (iPhone SE 320/375, iPhone 390/393, Pro Max 430, Android 360/412) ---------- */
+  @media (max-width:640px){
+    html,body{overflow-x:hidden}
+    body{font-size:15px}
+    header{padding:10px max(12px,env(safe-area-inset-right)) 10px max(12px,env(safe-area-inset-left));gap:8px;
+           padding-top:max(10px,env(safe-area-inset-top))}
+    header{flex-wrap:nowrap}
+    header h1{font-size:16px;white-space:nowrap}
+    header .lbl{display:none}
+    .pill{font-size:12px;padding:3px 9px}
+    /* one row of tabs that scrolls sideways instead of wrapping into clipped rows */
+    nav.tabs{position:static;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+             padding:8px 10px 0;gap:2px}
+    nav.tabs::-webkit-scrollbar{display:none}
+    nav.tabs button{white-space:nowrap;padding:10px 12px;flex:0 0 auto}
+    main{padding:12px max(10px,env(safe-area-inset-left)) calc(70px + env(safe-area-inset-bottom))}
+    .card > .head{flex-wrap:wrap;gap:8px;padding:12px}
+    .card > .head .sub{flex-basis:100%;order:2}
+    .card > .head .grow{display:none}
+    .card > .head > button,.card > .head > label,.card > .head > select{order:3}
+    .card > .body{padding:4px 12px 12px}
+    button{min-height:38px}
+    button.sm{min-height:34px;padding:6px 10px}
+    .toggle{min-height:0;width:44px;height:26px}
+    .toggle::after{width:22px;height:22px}
+    .toggle.on::after{left:20px}
+    input,select{font-size:16px;padding:10px 12px}   /* 16px stops iOS zooming on focus */
+    /* tables become stacked cards: first cell on its own line, the rest flow below */
+    table,tbody,tr,td{display:block;width:100%}
+    thead{display:none}
+    th.hide-sm,td.hide-sm{display:none}
+    tr{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:12px 2px;border-bottom:1px solid var(--line)}
+    tr:last-child{border-bottom:none}
+    td{border:none;padding:0;width:auto}
+    td:first-child{flex:1 1 100%}
+    td:last-child{margin-left:auto}
+    .row-actions{justify-content:flex-end;flex-wrap:wrap}
+    .grpttl{padding:12px 2px 2px}
+    .checks{max-height:40vh}
+    .checks label{padding:9px 8px}
+    .scrim{padding:10px 8px calc(10px + env(safe-area-inset-bottom));align-items:flex-end}
+    .modal{max-width:100%;border-radius:14px;max-height:calc(100vh - 20px);display:flex;flex-direction:column}
+    .modal .mbody{overflow:auto}
+    .modal .mfoot button{flex:1}
+    .toast{bottom:calc(16px + env(safe-area-inset-bottom));width:max-content;max-width:calc(100vw - 24px)}
+    .ctrlgrid button{flex:1 1 45%}
+    #notifierBuilder input,#notifierBuilder label.field{max-width:none !important}
+    .notif-head{flex-wrap:wrap;row-gap:2px}
+  }
   /* notifications timeline */
   .notif{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden;background:var(--panel)}
   .notif-head{display:flex;align-items:center;gap:9px;padding:11px 13px;cursor:pointer}
@@ -124,7 +177,7 @@
   <h1><span class="amul">Amul</span> Stock Watch</h1>
   <span id="daemonPill" class="pill"><span class="dot"></span><span id="daemonText">…</span></span>
   <span class="grow"></span>
-  <button class="sm" id="btnRefresh" title="Reload">↻ Refresh</button>
+  <button class="sm" id="btnRefresh" title="Reload" aria-label="Refresh">↻<span class="lbl"> Refresh</span></button>
 </header>
 
 <nav class="tabs" id="tabs">
@@ -325,7 +378,9 @@ function renderWatches(){
              w.enabled?null:el("span",{class:"chip muted",style:"margin-left:6px;font-size:10px"},"disabled")),
         el("td",{}, recipientChips(w.recipients,w.recipients_summary)),
         el("td",{class:"mono muted small hide-sm"}, w.route_key),
-        el("td",{}, el("button",{class:"toggle"+(w.enabled?" on":""),title:w.enabled?"disable (parks it, keeps the settings)":"enable",
+        el("td",{}, el("button",{class:"toggle"+(w.enabled?" on":""),role:"switch","aria-checked":String(!!w.enabled),
+             "aria-label":(w.enabled?"Disable ":"Enable ")+w.product_label+" at "+w.pincode,
+             title:w.enabled?"disable (parks it, keeps the settings)":"enable",
              onclick:()=>toggleWatch(w)})),
         el("td",{}, el("div",{class:"row-actions"},
              el("button",{class:"sm ghost",title:"Send a test alert for this watch",onclick:()=>openSimulate(w)},"Test"),
@@ -395,7 +450,7 @@ function openWatch(w){
     if(!/^\d{6}$/.test(pincode)){toast("Pincode must be 6 digits",true);return false;}
     if(!products.length){toast("Tick at least one product",true);return false;}
     const recipients=[...picker.querySelectorAll("input:checked")].map(c=>c.value);
-    const payload={pincode,products,recipients,enabled:true};
+    const payload={pincode,products,recipients,enabled:w?w.enabled:true};
     if(isNew && !addrSel.value){payload.address_label=newLabel.value.trim();}
     try{const r=await api("/api/watch",payload);toast(products.length>1?products.length+" watches saved":"Watch saved");
       await reload(false);return true;}catch(e){toast(e.message,true);return false;}
@@ -463,7 +518,7 @@ async function loadStock(){
         el("td",{class:"mono small muted hide-sm"},r.pincode),
         el("td",{},el("span",{class:"badge "+(inStk?"in":"out")}, inStk?"IN":"OUT")),
         el("td",{class:"mono"}, r.qty),
-        el("td",{class:"mono small hide-sm"}, r.price?("₹"+r.price):"-"),
+        el("td",{class:"mono small"}, r.price?("₹"+r.price):"-"),
         el("td",{class:"small muted hide-sm"}, r.updated_at||"")));
     });
     tbl.appendChild(tb);body.appendChild(tbl);
@@ -574,7 +629,7 @@ function renderNotifierBuilder(){
       fields.appendChild(el("label",{class:"field"},f.label,input,
         f.secret?el("span",{class:"hint"},"Tip: type ${"+f.secret+"} here and put "+f.secret+"=… in the .env file, so the secret stays out of the YAML."):null));
     }
-    inputs[f.key]={f,input};
+    inputs[f.key]={f,input,orig:f.checkbox?input.checked:input.value};
   });
   if(!(NOTIFIER_FORMS[nbState.type]||[]).length) fields.appendChild(el("div",{class:"hint"},"Nothing to configure, just give it a name."));
   if(nbState.type==="email") fields.appendChild(el("div",{class:"hint"},"The SMTP server is set once under `email:` in notifications.yaml."));
@@ -585,11 +640,13 @@ function renderNotifierBuilder(){
       if(!nm){toast("Name required",true);return;}
       if(!editing&&(STATE.recipients||[]).some(r=>r.name===nm)){toast("A notifier named "+nm+" already exists",true);return;}
       const config={};
-      for(const [k,{f,input}] of Object.entries(inputs)){
-        if(f.checkbox){ if(input.checked) config[k]=true; continue; }
+      for(const [k,{f,input,orig}] of Object.entries(inputs)){
+        // Untouched fields are not sent, so the server keeps them exactly as stored
+        // (a list-form command, a masked secret, a value this form cannot represent).
+        if(editing && (f.checkbox?input.checked:input.value)===orig) continue;
+        if(f.checkbox){ config[k]=input.checked; continue; }
         const v=input.value.trim();
-        if(!v) continue;
-        config[k]=f.list?v.split(",").map(x=>x.trim()).filter(Boolean):v;
+        config[k]=!v?"":(f.list?v.split(",").map(x=>x.trim()).filter(Boolean):v);
       }
       try{
         await api("/api/notifier",{name:nm,type:nbState.type,config});
@@ -637,7 +694,8 @@ function renderLists(){
       el("td",{},el("strong",{},a.label)),
       el("td",{class:"mono"},a.pincode),
       el("td",{class:"small muted hide-sm"}, nw+" product"+(nw===1?"":"s")),
-      el("td",{},el("button",{class:"toggle"+(a.enabled?" on":""),onclick:()=>toggleAddress(a)})),
+      el("td",{},el("button",{class:"toggle"+(a.enabled?" on":""),role:"switch","aria-checked":String(!!a.enabled),
+        "aria-label":(a.enabled?"Disable ":"Enable ")+a.label,onclick:()=>toggleAddress(a)})),
       el("td",{},el("div",{class:"row-actions"},
         el("button",{class:"sm ghost",onclick:()=>openAddress(a)},"Edit"),
         el("button",{class:"danger",onclick:()=>delAddress(a)},"✕")))));

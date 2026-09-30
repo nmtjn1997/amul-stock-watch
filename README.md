@@ -51,7 +51,8 @@ Tokens only come in for some ways of *sending* alerts, and only if you choose th
 ## Quick start
 
 You need Python 3.10+, curl (built into macOS and Windows 10+) and, for the one-line
-installers, git.
+installers, git. On Debian and Ubuntu also `python3-venv`. The installers create your
+config too, so there is no separate `init` step.
 
 **macOS / Linux**
 
@@ -85,7 +86,7 @@ git clone https://github.com/nmtjn1997/amul-stock-watch.git && cd amul-stock-wat
 ```
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Then open <http://127.0.0.1:8847>. Inside a container the desktop and browser notifiers
@@ -117,6 +118,24 @@ amul-watch service install
 That registers `amul-watch serve` with launchd (macOS), a systemd user unit (Linux) or
 the Startup folder (Windows, no admin rights needed). Docker needs nothing extra: the container restarts itself.
 
+## Use it from your phone
+
+The alerts already reach your phone (ntfy, Telegram, email). To also manage watches from
+the phone, let the UI listen on your network and give it a password, in the `.env` file
+(`amul-watch paths` shows where it is):
+
+```bash
+AMUL_WATCH_HOST=0.0.0.0
+AMUL_WATCH_UI_PASSWORD=pick-a-long-password
+```
+
+Restart `amul-watch serve` (or run `amul-watch service install` again). It prints the
+address to open on a phone on the same Wi-Fi, such as `http://192.168.1.20:8847`. The UI
+is built for phone screens, and "Add to Home Screen" makes it open like an app. For Docker,
+change the port line in `docker-compose.yml` to `"8847:8847"` and set the password there.
+To reach it away from home, put it behind a VPN such as Tailscale rather than opening a
+port on your router.
+
 ## Your first real watch
 
 1. **Notifiers tab**: add a way to reach you. The fastest is `ntfy`: install the ntfy app
@@ -125,6 +144,10 @@ the Startup folder (Windows, no admin rights needed). Docker needs nothing extra
 2. **Watches tab** > **Add watch**: enter your pincode, tick the products, tick your
    notifier. Save.
 3. Press **Test** on the watch to see exactly who would be alerted.
+
+No alert when you expected one? Alerts fire only when a product goes from out of stock
+to in stock, not while it stays in stock. `amul-watch alerts` shows who each watch alerts,
+and [Troubleshooting](docs/HOW-TO.md#troubleshooting) covers the usual causes.
 
 That is it. The poller picks up changes on its next cycle; there is nothing to restart.
 
@@ -184,7 +207,21 @@ notifications.yaml   who to tell: notifiers and routes
 data/                SQLite state, logs, alert history, session cookie jar
 ```
 
+Logs are in `data/amul-watch.log` (also in the UI's Controls tab), or
+`docker compose logs -f` in Docker.
+
 Every key is documented in **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)**.
+
+## Update, stop, uninstall
+
+| | Installed with the script | Docker |
+|---|---|---|
+| Update | run the same one-line installer again | `git pull && docker compose up -d --build` |
+| Stop | Ctrl+C, or `amul-watch service uninstall` if you installed the service | `docker compose down` |
+| Uninstall | `amul-watch service uninstall`, then delete `~/.local/share/amul-watch` and `~/.local/bin/amul-watch` (Windows: `%LOCALAPPDATA%\amul-watch`) | `docker compose down -v` (also deletes your config) |
+
+Your config and history stay in the home directory (`amul-watch paths`) until you delete
+it yourself.
 
 ## Security notes
 

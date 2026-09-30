@@ -5,7 +5,6 @@ services:
   amul-watch:
     build: .
     image: amul-stock-watch:latest
-    container_name: amul-watch
     restart: unless-stopped
     ports:
       # Localhost only by default. To reach it from other devices use "8847:8847"

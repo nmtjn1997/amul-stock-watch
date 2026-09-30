@@ -237,3 +237,7 @@ lookup, in that order.
 | A notifier shows "needs setup" | Required field missing, or `${VAR}` not in `.env` | Edit it, then press Test |
 | Alerts never arrive for one watch | Route names a notifier that does not exist | `amul-watch alerts` shows the resolved list; `doctor` flags unknown names |
 | "cannot reach Amul" system alert | Shop down, or blocked on this network | Wait; if it persists, `amul-watch session import` with a browser cookie |
+| Phone gets nothing from ntfy | Topic typed differently in the app, or notifications muted for the ntfy app | Press **Test** on the notifier; compare the topic letter by letter; check the phone's notification settings |
+| Expected an alert, got none | The product was already in stock when the watch started, or it never went out of stock | Alerts fire on out of stock to in stock only. The Live Stock tab shows what was seen |
+| `docker ps` says unhealthy | Three poll cycles in a row could not read anything | `docker compose exec amul-watch amul-watch doctor` |
+| `service install` says systemd not found | Container, WSL1 or a distro without systemd | Run `amul-watch serve` under tmux or nohup, or use Docker |
