@@ -277,6 +277,23 @@ function qr(text, px = 4) {
   return h("img", { class: "qr", src: q.createDataURL(px, px * 2), width: String(size), height: String(size), alt: `QR code for ${text}` });
 }
 
+// One QR at a time, hidden until asked for. The first choice is shown first.
+function qrReveal(choices) {
+  const out = h("div", {});
+  const pick = (i) => out.replaceChildren(
+    choices.length > 1 ? h("div", { class: "seg" }, choices.map((c, j) =>
+      h("button", { type: "button", class: j === i ? "on" : null, onclick: () => pick(j) }, c.label))) : null,
+    h("div", { class: "qrwrap" }, qr(choices[i].text)),
+    h("p", { class: "small muted" }, choices[i].hint));
+  const btn = h("button", { type: "button", class: "ghost", "aria-expanded": "false", onclick: () => {
+    const open = btn.getAttribute("aria-expanded") !== "true";
+    btn.setAttribute("aria-expanded", String(open));
+    btn.textContent = open ? "Hide QR codes" : "Show QR codes";
+    if (open) pick(0); else out.replaceChildren();
+  } }, "Show QR codes");
+  return h("div", {}, btn, out);
+}
+
 async function copy(text, what) {
   try { await navigator.clipboard.writeText(text); toast(`${what} copied`); }
   catch { toast("Copy did not work here. Select the text and copy it.", true); }
@@ -430,13 +447,14 @@ function ntfySetup() {
       h("ol", { class: "how" },
         h("li", {}, "Install ntfy: ",
           h("a", { href: "https://play.google.com/store/apps/details?id=io.heckel.ntfy", rel: "noopener", target: "_blank" }, "Android"), " or ",
-          h("a", { href: "https://apps.apple.com/app/ntfy/id1625396347", rel: "noopener", target: "_blank" }, "iPhone"), isPhone() ? "." : ", or scan:",
-          isPhone() ? null : h("div", { class: "qrpair" },
-            h("figure", {}, qr("https://play.google.com/store/apps/details?id=io.heckel.ntfy", 3), h("figcaption", { class: "small muted" }, "Android")),
-            h("figure", {}, qr("https://apps.apple.com/app/ntfy/id1625396347", 3), h("figcaption", { class: "small muted" }, "iPhone")))),
-        h("li", {}, isPhone() ? ["Tap ", h("a", { href: deep }, "Subscribe in ntfy"), ", or add this topic in the app:"] : "Scan this with the phone, or add the topic in the app:"),
+          h("a", { href: "https://apps.apple.com/app/ntfy/id1625396347", rel: "noopener", target: "_blank" }, "iPhone"), "."),
+        h("li", {}, isPhone() ? ["Tap ", h("a", { href: deep }, "Subscribe in ntfy"), ", or add this topic in the app:"] : "Subscribe to your topic in the app:"),
       ),
-      isPhone() ? null : h("div", { class: "qrwrap" }, qr(web)),
+      isPhone() ? null : qrReveal([
+        { label: "iPhone app", text: "https://apps.apple.com/app/ntfy/id1625396347", hint: "Opens ntfy in the App Store." },
+        { label: "Android app", text: "https://play.google.com/store/apps/details?id=io.heckel.ntfy", hint: "Opens ntfy in the Play Store." },
+        { label: "Subscribe", text: web, hint: "After installing, scan this to subscribe to your topic without typing it." },
+      ]),
       copyRow(u.ntfy_topic, "Topic"),
       h("p", { class: "hint" }, "Keep the topic private: anyone who knows it can read these alerts. The free ntfy.sh service often does not answer this site; Telegram or browser notifications are more reliable."),
     ) : null,
