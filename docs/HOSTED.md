@@ -31,9 +31,14 @@ flowchart LR
 - **The free plan allows 50 outbound requests per run**, so pincodes are visited in turn
   from a saved position. With a few dozen pincodes a full round takes a few minutes; the
   admin page shows how many pincodes the last run covered.
-- **Alerts go to ntfy by default.** Each account gets its own random topic at sign-up, so
-  there is nothing to configure beyond installing the app and subscribing. A Discord or
-  Slack webhook can be added too.
+- **Alerts arrive as browser notifications** by default (Web Push). Chrome, Edge and
+  Firefox on Android and computers work straight away; on iPhone and iPad (iOS 16.4+)
+  the site is added to the Home Screen first. No app, no account, no quota: messages are
+  encrypted for the device (RFC 8291) and signed with this site's key (VAPID).
+- **ntfy and Discord/Slack are optional extras.** ntfy.sh without an account limits
+  messages per sending IP, and every Cloudflare Worker shares the same IPs, so from
+  Workers it often answers 429 (daily quota) or times out (522). If you want ntfy, add an
+  ntfy.sh account token as the `NTFY_TOKEN` secret, or point `NTFY_SERVER` at your own.
 - **Everything is stored in D1**: accounts, alerts, the last stock seen per pincode and
   product, the 30-day message history and the shop session. Nothing is kept in the browser
   except the session cookie.
@@ -66,7 +71,7 @@ appears once you add a Google OAuth client (below).
 | Sign-up spam and seat filling | Cloudflare Turnstile human check on sign-up; at most 100 accounts; 3 new accounts per network per hour (IPv6 counted per /64, so address rotation does not help); 30 new accounts per hour overall, counted only on success |
 | One person hogging resources | 10 alerts and 3 pincodes per person; every pincode must pass the (rate limited, 20 per hour) delivery check before an alert is saved; 60 writes per minute; password re-checks limited to 10 per 15 min |
 | Stalling the poller | Work is split into units of at most 20 products, so no pincode is ever too big for one run |
-| Using the service to spam | Webhooks only to `discord.com` and `hooks.slack.com` (no credentials, ports or redirects); ntfy topics are generated, not chosen; 5 test messages per hour |
+| Using the service to spam | Webhooks only to `discord.com` and `hooks.slack.com` (no credentials, ports or redirects); push only to the browsers' own push services; ntfy topics are generated, not chosen; 5 test messages per hour; 5 devices per person |
 | Impersonation in names | Control and bidi characters are stripped from display names |
 | Losing the admin | The last active admin cannot be disabled, demoted or deleted |
 | Hammering Amul | One shop session shared by all users; each pincode and product is read once per round, spread over time |
@@ -98,7 +103,15 @@ npx wrangler login
 npx wrangler d1 create amul-watch
 ```
 
-Put the printed `database_id` into `wrangler.toml`, then:
+Put the printed `database_id` into `wrangler.toml`. Create a push key pair
+(`node cloud/scripts/vapid-keys.mjs`), put the public key in `VAPID_PUBLIC_KEY`, and store
+the private one:
+
+```bash
+npx wrangler secret put VAPID_PRIVATE_JWK < vapid-private.json
+```
+
+Then:
 
 ```bash
 npx wrangler d1 migrations apply amul-watch --remote

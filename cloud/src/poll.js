@@ -144,7 +144,7 @@ export async function runPoll(env) {
     }
   }
   for (const p of pending.values()) {
-    if (budget.left < 2) break; // the rest go out next minute
+    if (budget.left < 8) break; // one person may have up to 5 devices + ntfy + chat; the rest go out next minute
     // A person whose channels keep failing is retried every 5 minutes, not every minute.
     if (!(await allow(db, `notify-retry:${p.userId}:${p.alias}`, 1, 300))) continue;
     const user = await db.prepare("SELECT * FROM users WHERE id = ?").bind(p.userId).first();

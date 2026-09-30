@@ -33,6 +33,11 @@ MAX_PINCODES_PER_USER = "3"
 # secret (wrangler secret put TURNSTILE_SECRET); without it the check is off.
 TURNSTILE_SITE_KEY = "0x4AAAAAAFKOxvHLEErz8Yjz"
 NTFY_SERVER = "https://ntfy.sh"
+# Browser push: this public key goes to browsers; the private half is the secret
+# VAPID_PRIVATE_JWK (wrangler secret put VAPID_PRIVATE_JWK). Optional NTFY_TOKEN secret:
+# an ntfy.sh account token, so ntfy alerts are not limited by the shared free quota.
+VAPID_PUBLIC_KEY = "BNZeu15wJyvop1ypLSbWD1fLxP1a7vTkV9J11yfyp4_xYeEJQHGFfh5ZCWXgcQZbtzxqq8E7XPO6ziUXfzlFUM4"
+VAPID_SUBJECT = "https://github.com/nmtjn1997/amul-stock-watch"
 # Google accounts with these emails become admins on first sign-in (comma separated).
 ADMIN_EMAILS = ""
 # Set GOOGLE_CLIENT_ID here and GOOGLE_CLIENT_SECRET + SESSION_SECRET as secrets to turn

@@ -13,6 +13,8 @@ const CSP = [
   "frame-ancestors 'none'",
   "base-uri 'none'",
   "object-src 'none'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
 ].join("; ");
 
 // Every response, API or page, carries these.

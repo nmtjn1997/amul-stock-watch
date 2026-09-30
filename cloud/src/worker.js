@@ -53,6 +53,7 @@ async function route(req, env) {
     return json({
       google: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
       turnstile: env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY || null : null,
+      vapid: env.VAPID_PRIVATE_JWK ? env.VAPID_PUBLIC_KEY || null : null,
       max_watches: Number(env.MAX_WATCHES_PER_USER || 10),
     });
   }
@@ -68,6 +69,8 @@ async function route(req, env) {
   if (m && method === "POST") return body.delete ? api.deleteWatch(env, user, m[1]) : api.updateWatch(env, user, m[1], body);
   if (path === "/api/settings" && method === "POST") return api.updateSettings(env, user, body);
   if (path === "/api/test" && method === "POST") return api.sendTest(env, user);
+  if (path === "/api/push/subscribe" && method === "POST") return api.addDevice(env, user, body);
+  if (path === "/api/push/remove" && method === "POST") return api.removeDevice(env, user, body);
   if (path === "/api/history" && method === "GET") return api.history(env, user);
   if (path === "/api/password" && method === "POST") return api.password(env, req, user, body);
   if (path === "/api/account/delete" && method === "POST") return api.removeAccount(env, user, body);

@@ -60,6 +60,8 @@ jobs:
           node-version: "22"
       - name: syntax check the Worker and its UI
         run: for f in cloud/src/*.js cloud/public/*.js; do node --check "$f"; done
+      - name: Web Push encryption matches RFC 8291
+        run: node cloud/test/webpush.test.mjs
 
   docker:
     runs-on: ubuntu-latest

@@ -45,7 +45,9 @@ function loadTurnstile() {
 
 async function api(path, body) {
   const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-  const r = await fetch(path, opt);
+  let r;
+  try { r = await fetch(path, opt); }
+  catch { throw new Error("Could not reach the server. Check your internet connection and try again."); }
   const data = await r.json().catch(() => ({ error: "Unexpected answer from the server." }));
   if (!r.ok) {
     const e = new Error(data.error || `Error ${r.status}`);
@@ -103,6 +105,24 @@ function authView(mode) {
   const user = h("input", { type: "text", id: "u", autocomplete: "username", autocapitalize: "none", spellcheck: "false", maxlength: "20", required: true });
   const pass = h("input", { type: "password", id: "p", autocomplete: signup ? "new-password" : "current-password", maxlength: "128", required: true });
   const btn = h("button", { class: "primary wide", type: "submit" }, signup ? "Create account" : "Log in");
+  const uHint = h("div", { class: "hint" }, signup ? "3 to 20 characters: lowercase letters, digits or _. No email needed." : "");
+  const pHint = h("div", { class: "hint" }, signup ? "At least 8 characters." : "");
+  const eye = h("button", { type: "button", class: "ghost eye", "aria-label": "Show password",
+    onclick: () => { const showing = pass.type === "text"; pass.type = showing ? "password" : "text"; eye.textContent = showing ? "Show" : "Hide"; eye.setAttribute("aria-label", showing ? "Show password" : "Hide password"); } }, "Show");
+  if (signup) {
+    user.addEventListener("input", () => {
+      user.value = user.value.toLowerCase().replace(/\s/g, "");
+      const ok = /^[a-z0-9_]{3,20}$/.test(user.value);
+      uHint.className = !user.value || ok ? "hint" : "hint bad";
+      uHint.textContent = !user.value || ok ? "3 to 20 characters: lowercase letters, digits or _. No email needed."
+        : /[^a-z0-9_]/.test(user.value) ? "Only lowercase letters, digits and _ are allowed." : "Use 3 to 20 characters.";
+    });
+    pass.addEventListener("input", () => {
+      const n = pass.value.length;
+      pHint.className = !n || n >= 8 ? "hint" : "hint bad";
+      pHint.textContent = !n ? "At least 8 characters." : n < 8 ? `${8 - n} more character${8 - n > 1 ? "s" : ""} needed.` : "Looks good.";
+    });
+  }
   const human = h("div", { class: "human" });
   let humanToken = "";
   let widget = null;
@@ -115,7 +135,10 @@ function authView(mode) {
     onsubmit: async (e) => {
       e.preventDefault();
       err.textContent = "";
-      busy(btn, true);
+      if (signup && !/^[a-z0-9_]{3,20}$/.test(user.value.trim())) { err.textContent = "Pick a username of 3 to 20 lowercase letters, digits or _."; user.focus(); return; }
+      if (signup && pass.value.length < 8) { err.textContent = "The password needs at least 8 characters."; pass.focus(); return; }
+      if (signup && CONFIG.turnstile && !humanToken) { err.textContent = "Please complete the \"Verify you are human\" check first."; return; }
+      busy(btn, true, signup ? "Creating your account..." : "Logging in...");
       try {
         await api(signup ? "/api/signup" : "/api/login", { username: user.value.trim().toLowerCase(), password: pass.value, turnstile: humanToken });
         await loadMe();
@@ -128,10 +151,8 @@ function authView(mode) {
       }
     },
   },
-    h("label", { class: "f", for: "u" }, "Username"), user,
-    signup ? h("div", { class: "hint" }, "3 to 20 characters: lowercase letters, digits or _. No email needed.") : null,
-    h("label", { class: "f", for: "p" }, "Password"), pass,
-    signup ? h("div", { class: "hint" }, "At least 8 characters.") : null,
+    h("label", { class: "f", for: "u" }, "Username"), user, signup ? uHint : null,
+    h("label", { class: "f", for: "p" }, "Password"), h("div", { class: "pwrow" }, pass, eye), signup ? pHint : null,
     signup && CONFIG.turnstile ? human : null,
     err, btn,
   );
@@ -238,35 +259,155 @@ function setupView() {
   } else {
     show(h("div", { class: "page" }, stepsBar(3),
       h("h1", {}, "Where should we tell you?"),
-      h("p", { class: "lead" }, "Alerts arrive as phone notifications through the free ntfy app. No account needed."),
-      h("div", { class: "card" }, phoneSetup(true)),
+      h("p", { class: "lead" }, "Turn on notifications and you will get a message the moment something is back. Nothing to install."),
+      h("div", { class: "card" }, notifySetup(true)),
       h("button", { class: "primary wide", onclick: () => go("#/") }, "Done, show my alerts"),
     ));
   }
 }
 
-function phoneSetup(compact) {
+function qr(text, px = 4) {
+  if (!window.qrcode) return null;
+  const q = window.qrcode(0, "M");
+  q.addData(text);
+  q.make();
+  const size = q.getModuleCount() * px + px * 4;
+  return h("img", { class: "qr", src: q.createDataURL(px, px * 2), width: String(size), height: String(size), alt: `QR code for ${text}` });
+}
+
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); toast(`${what} copied`); }
+  catch { toast("Copy did not work here. Select the text and copy it.", true); }
+}
+
+function copyRow(text, what) {
+  return h("div", { class: "copyrow" }, h("code", { class: "topic" }, text),
+    h("button", { type: "button", class: "ghost", "aria-label": `Copy ${what}`, onclick: () => copy(text, what) }, "Copy"));
+}
+
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || isIOS() ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Computer";
+  const br = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "browser";
+  return `${os} ${standalone() ? "app" : br}`;
+}
+
+function keyBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  return Uint8Array.from(atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+}
+const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function currentSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+async function turnOnPush() {
+  if (!CONFIG.vapid) throw new Error("Notifications are not set up on the server yet.");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error(perm === "denied"
+    ? "Notifications are blocked for this site. Allow them in your browser's site settings, then try again."
+    : "You did not allow notifications. Tap the button again and choose Allow.");
+  const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(CONFIG.vapid) });
+  await api("/api/push/subscribe", { endpoint: sub.endpoint, p256dh: b64u(sub.getKey("p256dh")), auth: b64u(sub.getKey("auth")), label: deviceLabel() });
+}
+
+async function turnOffPush() {
+  const sub = await currentSubscription();
+  if (sub) {
+    await api("/api/push/remove", { endpoint: sub.endpoint }).catch(() => null);
+    await sub.unsubscribe().catch(() => null);
+  }
+}
+
+function notifySetup(compact) {
+  const box = h("div", {});
+  const status = h("div", { class: "hint" });
+  const testBtn = h("button", { type: "button", onclick: async () => {
+    busy(testBtn, true, "Sending...");
+    try { const r = await api("/api/test", {}); toast(r.ok ? "Test sent. Check your notifications." : `Not delivered: ${r.detail}`, !r.ok); }
+    catch (x) { toast(x.message, true); } finally { busy(testBtn, false); }
+  } }, "Send a test");
+
+  async function draw() {
+    const here = await currentSubscription().catch(() => null);
+    const onHere = Boolean(here && ME.devices.some((d) => here.endpoint.endsWith(d.endpoint_hash)));
+    const parts = [];
+    if (!pushSupported()) {
+      if (isIOS() && !standalone()) {
+        parts.push(h("div", { class: "note" }, h("b", {}, "On iPhone or iPad: "),
+          "tap the Share button, then ", h("b", {}, "Add to Home Screen"), ". Open Back in Stock from the Home Screen and come back here to turn notifications on. (iOS 16.4 or newer.)"));
+      } else {
+        parts.push(h("div", { class: "note" }, "This browser cannot show notifications. Use Chrome, Edge, Firefox or Safari, or use ntfy below."));
+      }
+    } else if (onHere) {
+      parts.push(h("div", { class: "ok-line" }, `Notifications are on for this device (${deviceLabel()}).`),
+        h("div", { class: "row" }, testBtn, h("button", { type: "button", class: "ghost", onclick: async () => { await turnOffPush(); await loadMe(); draw(); toast("Turned off on this device"); } }, "Turn off here")));
+    } else {
+      const on = h("button", { type: "button", class: "primary wide", onclick: async () => {
+        status.className = "hint"; status.textContent = "";
+        busy(on, true, "Turning on...");
+        try { await turnOnPush(); await loadMe(); toast("Notifications on. Sending a test..."); await api("/api/test", {}).catch(() => null); draw(); }
+        catch (x) { status.className = "err"; status.textContent = x.message; }
+        finally { busy(on, false); }
+      } }, "Turn on notifications on this device");
+      parts.push(on, status);
+      if (Notification.permission === "denied") {
+        status.className = "err";
+        status.textContent = "Notifications are blocked for this site. Allow them in your browser's site settings first.";
+      }
+    }
+    const others = ME.devices.filter((d) => !(here && here.endpoint.endsWith(d.endpoint_hash)));
+    if (others.length) {
+      parts.push(h("div", { class: "list devices" }, others.map((d) => h("div", { class: "li" },
+        h("div", { class: "main" }, h("div", {}, d.label), h("div", { class: "muted small" }, `added ${ago(d.created_at)}`)),
+        h("button", { type: "button", class: "ghost", onclick: async () => { await api("/api/push/remove", { id: d.id }); await loadMe(); draw(); toast("Removed"); } }, "Remove")))));
+      if (!onHere) parts.push(h("div", { class: "row" }, testBtn));
+    }
+    if (!compact || !isPhone()) {
+      parts.push(h("details", { class: "more" }, h("summary", {}, "Open this on your phone"),
+        h("p", { class: "small muted" }, "Scan with the phone's camera, log in there, and turn notifications on."),
+        h("div", { class: "qrwrap" }, qr(location.origin + "/")), copyRow(location.origin + "/", "Link")));
+    }
+    box.replaceChildren(...parts);
+  }
+  draw();
+  return box;
+}
+
+const isPhone = () => /Android|iPhone|iPad|iPod/.test(navigator.userAgent) || isIOS();
+
+function ntfySetup() {
   const u = ME.user;
   const web = `${u.ntfy_server}/${u.ntfy_topic}`;
   const deep = `ntfy://${u.ntfy_server.replace(/^https?:\/\//, "")}/${u.ntfy_topic}`;
-  const testBtn = h("button", { class: "primary", onclick: async () => {
-    busy(testBtn, true, "Sending...");
-    try { const r = await api("/api/test", {}); toast(r.ok ? "Sent. Check your phone." : `Could not send: ${r.detail}`, !r.ok); }
-    catch (x) { toast(x.message, true); } finally { busy(testBtn, false); }
-  } }, "Send a test");
+  const toggle = h("button", { type: "button", class: "switch", role: "switch", "aria-checked": String(u.ntfy_on), "aria-label": "Also send to the ntfy app",
+    onclick: async () => {
+      try { await api("/api/settings", { ntfy_on: !u.ntfy_on }); await loadMe(); render(); toast(!u.ntfy_on ? "ntfy on" : "ntfy off"); }
+      catch (x) { toast(x.message, true); }
+    } });
   return h("div", {},
-    h("ol", { class: "how" },
-      h("li", {}, "Install ntfy: ",
-        h("a", { href: "https://play.google.com/store/apps/details?id=io.heckel.ntfy", rel: "noopener", target: "_blank" }, "Android"), " or ",
-        h("a", { href: "https://apps.apple.com/app/ntfy/id1625396347", rel: "noopener", target: "_blank" }, "iPhone"), "."),
-      h("li", {}, "On the phone, tap ", h("a", { href: deep }, "Subscribe in ntfy"),
-        ". Or open ntfy, tap +, and enter this topic:", h("div", { class: "topic" }, u.ntfy_topic)),
-      h("li", {}, "Send yourself a test, then keep the app's notifications on."),
-    ),
-    h("div", { class: "row" }, testBtn,
-      h("button", { class: "ghost", onclick: async () => { try { await navigator.clipboard.writeText(u.ntfy_topic); toast("Topic copied"); } catch { toast("Copy it by hand from above", true); } } }, "Copy topic"),
-      compact ? null : h("a", { class: "btn ghost", href: web, target: "_blank", rel: "noopener" }, "Open on the web")),
-    h("p", { class: "hint" }, "Keep the topic private: anyone who knows it can read your alerts."),
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("b", {}, "ntfy app"), h("div", { class: "muted small" }, "Free phone app. Handy if browser notifications are not an option.")), toggle),
+    u.ntfy_on ? h("div", {},
+      h("ol", { class: "how" },
+        h("li", {}, "Install ntfy: ",
+          h("a", { href: "https://play.google.com/store/apps/details?id=io.heckel.ntfy", rel: "noopener", target: "_blank" }, "Android"), " or ",
+          h("a", { href: "https://apps.apple.com/app/ntfy/id1625396347", rel: "noopener", target: "_blank" }, "iPhone"), "."),
+        h("li", {}, isPhone() ? ["Tap ", h("a", { href: deep }, "Subscribe in ntfy"), ", or add this topic in the app:"] : "Scan this with the phone, or add the topic in the app:"),
+      ),
+      isPhone() ? null : h("div", { class: "qrwrap" }, qr(web)),
+      copyRow(u.ntfy_topic, "Topic"),
+      h("p", { class: "hint" }, "Keep the topic private: anyone who knows it can read these alerts. The free ntfy.sh service sometimes limits messages from this site; browser notifications are more reliable."),
+    ) : null,
   );
 }
 
@@ -306,13 +447,19 @@ function alertsView() {
       h("div", { class: "meta" }, status(w), `Pincode ${w.pincode}${w.store ? ` (${title(w.store)})` : ""}`),
     ));
   }
-  const phoneReady = ME.user.webhook ? `phone and ${ME.user.webhook}` : "phone (ntfy)";
+  const channels = [];
+  if (ME.devices.length) channels.push(ME.devices.length === 1 ? "1 device" : `${ME.devices.length} devices`);
+  if (ME.user.ntfy_on) channels.push("ntfy");
+  if (ME.user.webhook) channels.push(ME.user.webhook);
   show(
     h("div", { class: "summary card" },
       h("div", { class: "grow" },
         h("div", { class: "count" }, `${ws.length} of ${max} alerts`, h("span", { class: "muted small" }, ` · ${new Set(ws.map((w) => w.pincode)).size} of ${ME.user.max_pincodes} pincodes`)),
-        h("div", { class: "muted small" }, `Alerts go to your ${phoneReady}. Last check: ${ago(ME.last_check)}.`)),
+        h("div", { class: "muted small" }, channels.length ? `Alerts go to: ${channels.join(", ")}. Last check: ${ago(ME.last_check)}.` : `Last check: ${ago(ME.last_check)}.`)),
       addBtn),
+    channels.length ? null : h("div", { class: "card warn" }, h("b", {}, "You will not get alerts yet. "),
+      "Turn on notifications so we can tell you when something is back.",
+      h("a", { class: "btn primary wide", href: "#/settings" }, "Turn on notifications")),
     list,
     h("p", { class: "muted small" }, "You get one message when a product goes from out of stock to in stock. Nothing while it stays in stock."),
   );
@@ -376,8 +523,9 @@ async function settingsView() {
     h("button", { class: "danger", onclick: deleteSheet }, "Delete my account")));
 
   show(
-    h("div", { class: "card" }, h("h2", {}, "Phone alerts"), phoneSetup(false),
-      h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my topic"),
+    h("div", { class: "card" }, h("h2", {}, "Notifications"), notifySetup(false)),
+    h("div", { class: "card" }, h("h2", {}, "Other ways to get alerts (optional)"), ntfySetup(),
+      h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),
         h("button", { onclick: async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); } }, "Get a new topic"))),
     h("div", { class: "card" }, h("h2", {}, "Also send to Discord or Slack (optional)"),
@@ -440,6 +588,9 @@ async function adminView() {
   const products = d.products.map((p) => h("div", { class: "li" },
     h("div", { class: "main" }, h("div", {}, p.label, " ", p.enabled ? null : h("span", { class: "pill off" }, "hidden")),
       h("div", { class: "muted small" }, `${p.watches} watching`)),
+    h("div", { class: "row" },
+      h("button", { class: "ghost", "aria-label": `Move ${p.label} up`, title: "Show earlier", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "up" }); adminView(); } }, "\u2191"),
+      h("button", { class: "ghost", "aria-label": `Move ${p.label} down`, title: "Show later", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "down" }); adminView(); } }, "\u2193")),
     p.enabled ? h("button", { class: "ghost", onclick: async () => { await api("/api/admin/products", { alias: p.alias, remove: true }); adminView(); } }, "Hide")
       : h("button", { onclick: async () => { await api("/api/admin/products", { alias: p.alias, label: p.label }); adminView(); } }, "Show")));
   show(
@@ -451,7 +602,7 @@ async function adminView() {
         h("div", { class: "tile" }, h("b", {}, c.alerts_24h), h("span", {}, "alerts sent in 24 h"))),
       h("p", { class: "small muted" }, run ? `Last check ${ago(run.ts)}: ${run.pincodes} of ${run.pincodes_total} pincodes, ${run.checks} products, ${run.alerts} alerts${run.errors.length ? `, errors: ${run.errors.join("; ")}` : ""}.` : "No check has run yet.")),
     h("div", { class: "card" }, h("h2", {}, `People (${c.users})`), h("div", { class: "list" }, users)),
-    h("div", { class: "card" }, h("h2", {}, "Products people can pick"), h("div", { class: "list" }, products),
+    h("div", { class: "card" }, h("h2", {}, "Products people can pick"), h("p", { class: "small muted" }, "Shown in this order. Use the arrows to reorder."), h("div", { class: "list" }, products),
       h("form", { onsubmit: async (e) => {
         e.preventDefault();
         try { await api("/api/admin/products", { alias: purl.value, label: plabel.value }); purl.value = plabel.value = ""; toast("Added"); adminView(); } catch (x) { toast(x.message, true); }

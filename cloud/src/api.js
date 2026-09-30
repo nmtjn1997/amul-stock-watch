@@ -5,6 +5,7 @@
 import { AmulClient } from "./amul.js";
 import { changePassword, deleteAccount, googleEnabled } from "./auth.js";
 import { deliver } from "./notify.js";
+import { validSubscription } from "./webpush.js";
 import { zoneFor } from "./poll.js";
 import { ALIAS_RE, PINCODE_RE, allow, cleanName, fail, json, now, randomTopic, validWebhook } from "./util.js";
 
@@ -23,6 +24,7 @@ function publicUser(u, env) {
     ntfy_topic: u.ntfy_topic,
     ntfy_server: env.NTFY_SERVER || "https://ntfy.sh",
     webhook: u.webhook_url ? (u.webhook_url.includes("slack") ? "Slack" : "Discord") : null,
+    ntfy_on: Boolean(u.ntfy_on),
     has_password: Boolean(u.pass_hash),
     max_watches: maxWatches(env),
     max_pincodes: maxPincodes(env),
@@ -33,11 +35,11 @@ async function myWatches(env, user) {
   return (
     await env.DB.prepare(
       `SELECT w.id, w.pincode, w.alias, w.enabled, p.label, p.enabled AS product_enabled,
-              s.in_stock, s.qty, s.price, s.changed_at, z.store, z.valid
+              s.in_stock, s.qty, s.price, s.changed_at, z.store, z.valid, p.sort
        FROM watches w JOIN products p ON p.alias = w.alias
        LEFT JOIN stock s ON s.pincode = w.pincode AND s.alias = w.alias
        LEFT JOIN zones z ON z.pincode = w.pincode
-       WHERE w.user_id = ? ORDER BY w.pincode, p.label`,
+       WHERE w.user_id = ? ORDER BY w.pincode, p.sort, p.label`,
     ).bind(user.id).all()
   ).results;
 }
@@ -54,10 +56,13 @@ async function lastRun(env) {
 // ------------------------------------------------------------------ user routes
 
 export async function me(env, user) {
-  const products = (await env.DB.prepare("SELECT alias, label FROM products WHERE enabled = 1 ORDER BY label").all()).results;
+  const products = (await env.DB.prepare("SELECT alias, label FROM products WHERE enabled = 1 ORDER BY sort, label").all()).results;
+  const devices = (await env.DB.prepare("SELECT id, label, created_at, endpoint FROM push_subs WHERE user_id = ? ORDER BY created_at").bind(user.id).all()).results
+    .map((d) => ({ id: d.id, label: d.label, created_at: d.created_at, endpoint_hash: d.endpoint.slice(-24) }));
   const run = await lastRun(env);
   return json({
     user: publicUser(user, env),
+    devices,
     watches: await myWatches(env, user),
     products,
     google: googleEnabled(env),
@@ -143,6 +148,9 @@ export async function updateSettings(env, user, body) {
     if (url && !validWebhook(url)) fail(400, "Paste a Discord or Slack incoming webhook URL (https://discord.com/api/webhooks/... or https://hooks.slack.com/...).");
     await env.DB.prepare("UPDATE users SET webhook_url = ? WHERE id = ?").bind(url || null, user.id).run();
   }
+  if ("ntfy_on" in body) {
+    await env.DB.prepare("UPDATE users SET ntfy_on = ? WHERE id = ?").bind(body.ntfy_on ? 1 : 0, user.id).run();
+  }
   if (body.new_topic) {
     await env.DB.prepare("UPDATE users SET ntfy_topic = ? WHERE id = ?").bind(randomTopic(), user.id).run();
   }
@@ -152,6 +160,30 @@ export async function updateSettings(env, user, body) {
     await env.DB.prepare("UPDATE users SET display_name = ? WHERE id = ?").bind(name, user.id).run();
   }
   return json({ ok: true });
+}
+
+// A device (browser or home-screen app) that turned on notifications.
+export async function addDevice(env, user, body) {
+  const sub = { endpoint: String(body.endpoint || ""), p256dh: String(body.p256dh || ""), auth: String(body.auth || "") };
+  if (!validSubscription(sub)) fail(400, "This browser gave an unexpected push address. Try another browser.");
+  if (!(await allow(env.DB, `write:${user.id}`, 60, 60))) fail(429, "Slow down a little.");
+  const label = String(body.label || "This device").replace(/[\p{C}]/gu, "").slice(0, 40);
+  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM push_subs WHERE user_id = ?").bind(user.id).first();
+  const mine = await env.DB.prepare("SELECT user_id FROM push_subs WHERE endpoint = ?").bind(sub.endpoint).first();
+  if (!mine && count.n >= 5) fail(400, "You can have notifications on up to 5 devices. Remove one first.");
+  // The same browser signing in as someone else moves the subscription to them.
+  await env.DB.prepare(
+    `INSERT INTO push_subs (user_id, endpoint, p256dh, auth, label, created_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, label = excluded.label`,
+  ).bind(user.id, sub.endpoint, sub.p256dh, sub.auth, label, now()).run();
+  return json({ ok: true });
+}
+
+export async function removeDevice(env, user, body) {
+  const res = body.endpoint
+    ? await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?").bind(String(body.endpoint), user.id).run()
+    : await env.DB.prepare("DELETE FROM push_subs WHERE id = ? AND user_id = ?").bind(Number(body.id), user.id).run();
+  return json({ ok: true, removed: res.meta.changes });
 }
 
 export async function sendTest(env, user) {
@@ -193,7 +225,7 @@ export async function adminOverview(env, user) {
     db.prepare("SELECT COUNT(*) AS n FROM alert_log WHERE kind = 'stock' AND ts > ?").bind(now() - 86400),
   ]);
   const products = (await db.prepare(
-    "SELECT p.alias, p.label, p.enabled, (SELECT COUNT(*) FROM watches w WHERE w.alias = p.alias) AS watches FROM products p ORDER BY p.label",
+    "SELECT p.alias, p.label, p.enabled, p.sort, (SELECT COUNT(*) FROM watches w WHERE w.alias = p.alias) AS watches FROM products p ORDER BY p.sort, p.label",
   ).all()).results;
   const recent = (await db.prepare(
     "SELECT a.ts, a.kind, a.product, a.pincodes, a.result, u.display_name FROM alert_log a JOIN users u ON u.id = a.user_id ORDER BY a.ts DESC LIMIT 25",
@@ -241,9 +273,20 @@ export async function adminProduct(env, user, body) {
     await env.DB.prepare("UPDATE products SET enabled = 0 WHERE alias = ?").bind(alias).run();
     return json({ ok: true });
   }
+  if (body.move === "up" || body.move === "down") {
+    // Renumber in the current order, then swap with the neighbour: stable even when
+    // several products share a sort value.
+    const all = (await env.DB.prepare("SELECT alias FROM products ORDER BY sort, label").all()).results.map((r) => r.alias);
+    const i = all.indexOf(alias);
+    const j = body.move === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= all.length) return json({ ok: true });
+    [all[i], all[j]] = [all[j], all[i]];
+    await env.DB.batch(all.map((a, n) => env.DB.prepare("UPDATE products SET sort = ? WHERE alias = ?").bind(n + 1, a)));
+    return json({ ok: true });
+  }
   const label = String(body.label || "").trim().slice(0, 80) || alias.replace(/-/g, " ");
   await env.DB.prepare(
-    `INSERT INTO products (alias, label, enabled, created_at) VALUES (?, ?, 1, ?)
+    `INSERT INTO products (alias, label, enabled, created_at, sort) VALUES (?, ?, 1, ?, 1000)
      ON CONFLICT(alias) DO UPDATE SET label = excluded.label, enabled = 1`,
   ).bind(alias, label, now()).run();
   return json({ ok: true, alias });

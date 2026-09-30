@@ -126,3 +126,15 @@ details.more summary { cursor: pointer; font-weight: 650; }
   .tabs a { padding: 10px 12px; }
 }
 .human { margin-top: 14px; min-height: 65px; }
+.hint.bad { color: var(--bad); }
+.pwrow { display: flex; gap: 8px; }
+.pwrow input { flex: 1; }
+.eye { min-width: 64px; }
+.copyrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.copyrow .topic { flex: 1; min-width: 0; }
+.qrwrap { display: flex; justify-content: center; margin: 12px 0; }
+.qr { background: #fff; padding: 8px; border-radius: 12px; image-rendering: pixelated; max-width: 220px; height: auto; }
+.note { background: var(--warnbg); color: var(--ink); border-radius: 12px; padding: 12px 14px; font-size: 15px; }
+.card.warn { border-color: var(--warn); background: var(--warnbg); }
+.card.warn .btn { margin-top: 12px; }
+.devices { margin: 10px 0; }
