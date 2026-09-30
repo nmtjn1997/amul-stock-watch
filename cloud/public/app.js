@@ -76,7 +76,9 @@ function ago(ts) {
   return `${Math.round(s / 86400)} days ago`;
 }
 
-const show = (...nodes) => { const v = $("#view"); v.replaceChildren(...nodes); window.scrollTo(0, 0); };
+// Views pass optional sections as null; drop them rather than rendering the word "null".
+const present = (nodes) => nodes.flat().filter((n) => n !== null && n !== undefined && n !== false);
+const show = (...nodes) => { $("#view").replaceChildren(...present(nodes)); window.scrollTo(0, 0); };
 const go = (hash) => { if (location.hash === hash) render(); else location.hash = hash; };
 
 function busy(btn, on, label) {
@@ -86,7 +88,7 @@ function busy(btn, on, label) {
 }
 
 function openSheet(...nodes) {
-  $("#sheet").replaceChildren(...nodes);
+  $("#sheet").replaceChildren(...present(nodes));
   $("#scrim").hidden = false;
   const first = $("#sheet").querySelector("input,button");
   if (first) setTimeout(() => first.focus(), 50);
@@ -378,7 +380,7 @@ function notifySetup(compact) {
         h("p", { class: "small muted" }, "Scan with the phone's camera, log in there, and turn notifications on."),
         h("div", { class: "qrwrap" }, qr(location.origin + "/")), copyRow(location.origin + "/", "Link")));
     }
-    box.replaceChildren(...parts);
+    box.replaceChildren(...present(parts));
   }
   draw();
   return box;
@@ -637,9 +639,9 @@ async function adminView() {
   const body = h("div", {}, h("div", { class: "card" }, "Loading..."));
   show(nav, body);
   try {
-    if (adminState.section === "monitor") body.replaceChildren(...(await monitorSection()));
-    else if (adminState.section === "activity") body.replaceChildren(...(await activitySection()));
-    else body.replaceChildren(...(await peopleProductsSection(adminState.section)));
+    if (adminState.section === "monitor") body.replaceChildren(...present(await monitorSection()));
+    else if (adminState.section === "activity") body.replaceChildren(...present(await activitySection()));
+    else body.replaceChildren(...present(await peopleProductsSection(adminState.section)));
   } catch (x) {
     body.replaceChildren(h("div", { class: "card warn" }, x.message));
   }
