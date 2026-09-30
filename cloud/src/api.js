@@ -26,6 +26,7 @@ function publicUser(u, env) {
     ntfy_server: env.NTFY_SERVER || "https://ntfy.sh",
     webhook: u.webhook_url ? (u.webhook_url.includes("slack") ? "Slack" : "Discord") : null,
     ntfy_on: Boolean(u.ntfy_on),
+    telegram: env.TELEGRAM_BOT_TOKEN ? Boolean(u.tg_chat_id) : null,
     has_password: Boolean(u.pass_hash),
     max_watches: maxWatches(env),
     max_pincodes: maxPincodes(env),

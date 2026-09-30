@@ -6,6 +6,7 @@ import * as api from "./api.js";
 import { currentUser, googleCallback, googleStart, login, logout, signup } from "./auth.js";
 import { logEvent } from "./log.js";
 import { runPoll } from "./poll.js";
+import * as telegram from "./telegram.js";
 import { HttpError, json, secure } from "./util.js";
 
 const MAX_BODY = 8 * 1024;
@@ -37,6 +38,7 @@ async function route(req, env) {
   if (path === "/auth/google/start" && method === "GET") return googleStart(env, req);
   if (path === "/auth/google/callback" && method === "GET") return googleCallback(env, req);
   if (path === "/healthz") return json({ ok: true });
+  if (path === "/telegram/hook" && method === "POST") return telegram.hook(env, req);
 
   if (!path.startsWith("/api/")) {
     // Static app; unknown paths fall back to the single page.
@@ -70,6 +72,8 @@ async function route(req, env) {
   if (m && method === "POST") return body.delete ? api.deleteWatch(env, user, m[1]) : api.updateWatch(env, user, m[1], body);
   if (path === "/api/settings" && method === "POST") return api.updateSettings(env, user, body);
   if (path === "/api/test" && method === "POST") return api.sendTest(env, user);
+  if (path === "/api/telegram/link" && method === "POST") return json(await telegram.linkStart(env, req, user));
+  if (path === "/api/telegram/unlink" && method === "POST") { await telegram.unlink(env, user); return json({ ok: true }); }
   if (path === "/api/push/subscribe" && method === "POST") return api.addDevice(env, user, body);
   if (path === "/api/push/remove" && method === "POST") return api.removeDevice(env, user, body);
   if (path === "/api/history" && method === "GET") return api.history(env, user);

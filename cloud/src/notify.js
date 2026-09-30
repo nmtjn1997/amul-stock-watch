@@ -3,10 +3,12 @@
 //   ntfy     the ntfy app, opt-in: ntfy.sh without an account shares a daily quota per
 //            sending IP and all Workers share Cloudflare's IPs, so NTFY_TOKEN (an ntfy.sh
 //            account token) is strongly advised when it is used
+//   telegram this site's Telegram bot, once the person linked a chat
 //   webhook  a Discord or Slack channel
 // Nothing else is allowed: no arbitrary URLs, no email relay.
 
 import { validWebhook } from "./util.js";
+import { sendTelegram, telegramEnabled } from "./telegram.js";
 import { pushEnabled, sendPush } from "./webpush.js";
 
 async function ntfy(env, topic, alert) {
@@ -64,6 +66,15 @@ export async function deliver(env, user, alert) {
       results.push("ntfy: ok");
     } catch (e) {
       results.push(`ntfy: ${e.message}`);
+    }
+  }
+  if (user.tg_chat_id && telegramEnabled(env)) {
+    try {
+      used++;
+      await sendTelegram(env, user, alert);
+      results.push("telegram: ok");
+    } catch (e) {
+      results.push(`telegram: ${e.message}`);
     }
   }
   if (user.webhook_url) {

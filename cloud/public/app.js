@@ -388,6 +388,33 @@ function notifySetup(compact) {
 
 const isPhone = () => /Android|iPhone|iPad|iPod/.test(navigator.userAgent) || isIOS();
 
+function telegramSetup() {
+  const u = ME.user;
+  const box = h("div", {});
+  const refresh = async () => { await loadMe(); render(); };
+  const connect = h("button", { type: "button", class: "primary", onclick: async () => {
+    busy(connect, true, "Opening...");
+    try {
+      const { url } = await api("/api/telegram/link", {});
+      if (isPhone()) { location.href = url; }
+      box.replaceChildren(
+        h("p", { class: "small" }, isPhone() ? "In Telegram, press Start. Then come back here." : "Scan this with your phone, or open the link, then press Start in Telegram:"),
+        isPhone() ? null : h("div", { class: "qrwrap" }, qr(url)),
+        h("p", { class: "small" }, h("a", { href: url, target: "_blank", rel: "noopener" }, "Open in Telegram")),
+        h("button", { type: "button", onclick: refresh }, "I pressed Start"));
+    } catch (x) { toast(x.message, true); }
+    finally { busy(connect, false); }
+  } }, "Connect Telegram");
+  if (u.telegram) {
+    return h("div", {},
+      h("p", { class: "small" }, "Connected. Alerts also go to your Telegram chat with our bot."),
+      h("button", { type: "button", class: "ghost", onclick: async () => { await api("/api/telegram/unlink", {}); await refresh(); toast("Telegram disconnected"); } }, "Disconnect"));
+  }
+  return h("div", {},
+    h("p", { class: "small muted" }, "Free, works on any phone with the Telegram app. One tap to link, nothing to copy."),
+    connect, box);
+}
+
 function ntfySetup() {
   const u = ME.user;
   const web = `${u.ntfy_server}/${u.ntfy_topic}`;
@@ -411,7 +438,7 @@ function ntfySetup() {
       ),
       isPhone() ? null : h("div", { class: "qrwrap" }, qr(web)),
       copyRow(u.ntfy_topic, "Topic"),
-      h("p", { class: "hint" }, "Keep the topic private: anyone who knows it can read these alerts. The free ntfy.sh service sometimes limits messages from this site; browser notifications are more reliable."),
+      h("p", { class: "hint" }, "Keep the topic private: anyone who knows it can read these alerts. The free ntfy.sh service often does not answer this site; Telegram or browser notifications are more reliable."),
     ) : null,
   );
 }
@@ -455,6 +482,7 @@ function alertsView() {
   const channels = [];
   if (ME.devices.length) channels.push(ME.devices.length === 1 ? "1 device" : `${ME.devices.length} devices`);
   if (ME.user.ntfy_on) channels.push("ntfy");
+  if (ME.user.telegram) channels.push("Telegram");
   if (ME.user.webhook) channels.push(ME.user.webhook);
   show(
     h("div", { class: "summary card" },
@@ -529,6 +557,7 @@ async function settingsView() {
 
   show(
     h("div", { class: "card" }, h("h2", {}, "Notifications"), notifySetup(false)),
+    u.telegram === null ? null : h("div", { class: "card" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
     h("div", { class: "card" }, h("h2", {}, "Other ways to get alerts (optional)"), ntfySetup(),
       h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),

@@ -39,6 +39,10 @@ flowchart LR
   messages per sending IP, and every Cloudflare Worker shares the same IPs, so from
   Workers it often answers 429 (daily quota) or times out (522). If you want ntfy, add an
   ntfy.sh account token as the `NTFY_TOKEN` secret, or point `NTFY_SERVER` at your own.
+  In practice ntfy.sh often times out from Workers even with a token.
+- **Telegram (optional, reliable from Workers).** Create a bot with @BotFather and run
+  `npx wrangler secret put TELEGRAM_BOT_TOKEN`. Each person presses Connect Telegram in
+  Settings and then Start in the bot. The webhook registers itself on the first connect.
 - **Everything is stored in D1**: accounts, alerts, the last stock seen per pincode and
   product, the 30-day message history and the shop session. Nothing is kept in the browser
   except the session cookie.
