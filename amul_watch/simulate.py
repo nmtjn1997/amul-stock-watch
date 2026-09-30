@@ -23,13 +23,17 @@ def _pick_product(cfg: dict[str, Any], product: str) -> tuple[str, str]:
     alias = resolve_product_alias(cfg, product) if product else next(iter(items), "")
     if not alias:
         raise ValueError("no products in the watchlist: add one first")
+    if alias not in items:
+        raise ValueError(f"unknown or disabled product {product!r} (known: {', '.join(items) or 'none'})")
     label = str((items.get(alias) or {}).get("label") or alias)
     return alias, label
 
 
 def sim_stock(cfg: dict[str, Any], *, pincode: str, product: str = "", dry_run: bool = False) -> dict[str, str]:
+    pin = str(pincode).strip()
+    if not (pin.isdigit() and len(pin) == 6):
+        raise ValueError(f"pincode must be six digits, got {pincode!r}")
     alias, label = _pick_product(cfg, product)
-    pin = str(pincode)
     url = f"https://shop.amul.com/en/product/{alias}"
     names = stock_route_names(cfg, alias, [pin])
     alert = Alert(
@@ -71,26 +75,33 @@ def sim_system(cfg: dict[str, Any], *, dry_run: bool = False) -> dict[str, str]:
     print("system_alerts:", ", ".join(names) or "(none configured)")
     if dry_run:
         return {}
-    return send(
-        cfg,
-        names,
-        Alert(kind="test", title="TEST Amul Stock Watch: system alert",
-              message="TEST: this is what a session or connectivity problem alert looks like."),
-    )
+    alert = Alert(kind="test", title="TEST Amul Stock Watch: system alert",
+                  message="TEST: this is what a session or connectivity problem alert looks like.")
+    results = send(cfg, names, alert)
+    from amul_watch import notifications as nf
+
+    nf.record({**alert.as_dict(), "source": "test", "notifiers": names, "results": results})
+    for name, result in results.items():
+        print(f"  {name}: {result}")
+    return results
 
 
 def run_simulate(kind: str, *, pincode: str = "", product: str = "", dry_run: bool = False) -> int:
     cfg = load_config()
     kind = kind.lower().strip()
     if kind == "system":
-        sim_system(cfg, dry_run=dry_run)
-        return 0
+        results = sim_system(cfg, dry_run=dry_run)
+        return 1 if any(r.startswith("error") for r in results.values()) else 0
     if kind == "stock":
         if not pincode:
             print("simulate stock needs --pincode")
             return 1
-        sim_stock(cfg, pincode=pincode, product=product, dry_run=dry_run)
-        return 0
+        try:
+            results = sim_stock(cfg, pincode=pincode, product=product, dry_run=dry_run)
+        except ValueError as exc:
+            print(f"error: {exc}")
+            return 1
+        return 1 if any(r.startswith("error") for r in results.values()) else 0
     if kind == "routes":
         print("\n".join(describe_routes(cfg)))
         return 0

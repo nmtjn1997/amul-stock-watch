@@ -51,6 +51,7 @@ LOG_PATH = DATA_DIR / "amul-watch.log"
 STOCK_CSV_PATH = DATA_DIR / "stock-inventory.csv"
 COOKIE_JAR = DATA_DIR / "cookies.txt"          # the poller's session
 CLI_COOKIE_JAR = DATA_DIR / "cookies-cli.txt"  # one-off commands, so they never move the poller's session
+UI_COOKIE_JAR = DATA_DIR / "cookies-ui.txt"    # the UI's inline poll under `amul-watch ui`
 PAUSED_FILE = DATA_DIR / "paused.json"
 HEARTBEAT_FILE = DATA_DIR / "heartbeat.json"
 
@@ -87,7 +88,10 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     with path.open(encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
+        try:
+            data = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"{path.name} is not valid YAML, fix it and save again: {exc}") from exc
     return data if isinstance(data, dict) else {}
 
 
@@ -129,8 +133,10 @@ def init_home(*, force: bool = False) -> list[Path]:
         ("notifications.example.yaml", NOTIFICATIONS_CONFIG),
         ("env.example", SESSION_ENV),
     ):
-        if dest.exists() and not force:
-            continue
+        if dest.exists() and (not force or dest == SESSION_ENV):
+            continue  # --force never touches .env: it holds the user's secrets
+        if dest.exists():
+            dest.with_name(dest.name + ".bak").write_text(dest.read_text(encoding="utf-8"), encoding="utf-8")
         dest.write_text((EXAMPLES_DIR / src_name).read_text(encoding="utf-8"), encoding="utf-8")
         if dest == SESSION_ENV:
             try:

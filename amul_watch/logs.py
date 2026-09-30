@@ -67,7 +67,7 @@ def read_log(
     partial_head = True
     with path.open("rb") as fh:
         if after is not None:
-            cursor = int(after)
+            cursor = max(0, int(after))
             if cursor > size:
                 # File shrank: rotated or truncated. Restart from the tail.
                 rotated = True

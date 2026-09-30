@@ -35,6 +35,8 @@ def product_short(cfg: dict[str, Any], alias: str) -> str:
 def resolve_product_alias(cfg: dict[str, Any], product: str) -> str:
     """Accept a short name or a full alias; return the full alias."""
     key = str(product).strip().lower()
+    if not key:
+        return ""
     for item in cfg.get("watchlist") or []:
         alias = str(item.get("alias") or "")
         if key in (alias.lower(), str(item.get("short") or "").lower()):
@@ -126,7 +128,8 @@ def describe_notifier(name: str, spec: dict[str, Any] | None) -> str:
     elif kind == "ntfy":
         detail = f"topic {spec.get('topic', '?')}"
     elif kind == "command":
-        detail = str(spec.get("command") or "")
+        cmd = spec.get("command") or ""
+        detail = " ".join(str(c) for c in cmd) if isinstance(cmd, list) else str(cmd)
     state = " (disabled)" if spec.get("enabled") is False else ""
     return f"{name}: {kind}{' ' + detail if detail else ''}{state}"
 

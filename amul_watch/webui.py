@@ -36,9 +36,31 @@ def _read_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(raw.decode("utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return {}
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"request body is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("request body must be a JSON object")
+    return data
+
+
+def _bool(value: Any, default: bool) -> bool:
+    """JSON true/false, and also the strings "true"/"false" some clients send."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def _names(value: Any) -> list[str]:
+    """A list of names; a bare string is one name, never a list of characters."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise ValueError("expected a list of names")
+    return [str(v).strip() for v in value if str(v).strip()]
 
 
 def _parse_query(path: str) -> dict[str, Any]:
@@ -66,12 +88,11 @@ def api_stock(_body: dict[str, Any]) -> dict[str, Any]:
 
 def api_watch(body: dict[str, Any]) -> dict[str, Any]:
     """Create/update one watch, or several at once for the same pincode + recipients."""
-    products = [str(p) for p in (body.get("products") or []) if str(p).strip()]
+    products = _names(body.get("products")) or _names(body.get("product"))
     if not products:
-        products = [str(body.get("product") or "")]
-    recipients = body.get("recipients")
-    recipients = None if recipients is None else [str(r) for r in recipients]
-    enabled = bool(body.get("enabled", True))
+        raise ValueError("pick at least one product")
+    recipients = None if body.get("recipients") is None else _names(body.get("recipients"))
+    enabled = _bool(body.get("enabled"), True)
     results = [
         ce.upsert_watch(
             str(body.get("pincode") or ""),
@@ -95,7 +116,7 @@ def api_watch_toggle(body: dict[str, Any]) -> dict[str, Any]:
     res = ce.set_watch_enabled(
         str(body.get("pincode") or ""),
         str(body.get("product") or ""),
-        bool(body.get("enabled", True)),
+        _bool(body.get("enabled"), True),
     )
     return {"ok": True, "watch": res}
 
@@ -105,7 +126,7 @@ def api_address(body: dict[str, Any]) -> dict[str, Any]:
         str(body.get("pincode") or ""),
         label=str(body.get("label") or ""),
         short=str(body.get("short") or ""),
-        enabled=body.get("enabled"),
+        enabled=None if body.get("enabled") is None else _bool(body.get("enabled"), True),
     )
     return {"ok": True, "address": res}
 
@@ -125,12 +146,20 @@ def api_product(body: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "product": res}
 
 
+def _config_obj(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("`config` must be an object of settings")
+    return value
+
+
 def api_notifier(body: dict[str, Any]) -> dict[str, Any]:
     res = ce.upsert_notifier(
         str(body.get("name") or ""),
         str(body.get("type") or ""),
-        dict(body.get("config") or {}),
-        enabled=None if "enabled" not in body else bool(body["enabled"]),
+        _config_obj(body.get("config")),
+        enabled=None if "enabled" not in body else _bool(body["enabled"], True),
     )
     return {"ok": True, "notifier": res}
 
@@ -161,7 +190,7 @@ def api_watch_fill_disabled(_body: dict[str, Any]) -> dict[str, Any]:
 
 
 def api_name_list(body: dict[str, Any]) -> dict[str, Any]:
-    res = ce.set_name_list(str(body.get("key") or "default_alerts"), list(body.get("names") or []))
+    res = ce.set_name_list(str(body.get("key") or "default_alerts"), _names(body.get("names")))
     return {"ok": True, **res}
 
 
@@ -184,7 +213,7 @@ def api_poll(_body: dict[str, Any]) -> dict[str, Any]:
 
     from amul_watch import daemon
     from amul_watch.client import AmulClient
-    from amul_watch.config import CLI_COOKIE_JAR, DB_PATH, load_config, load_session_env
+    from amul_watch.config import DB_PATH, UI_COOKIE_JAR, load_config, load_session_env
     from amul_watch.db import StockDB
     from amul_watch.poller import run_poll
     from amul_watch.session_guard import SessionGuard
@@ -196,11 +225,15 @@ def api_poll(_body: dict[str, Any]) -> dict[str, Any]:
         daemon.WAKE.set()
         deadline = time.monotonic() + 180
         beat: dict[str, Any] = {}
+        finished = False
         while time.monotonic() < deadline:
             time.sleep(1)
             beat = daemon.watcher_state().get("last_poll") or {}
             if beat.get("ts") != before and not beat.get("polling"):
+                finished = True
                 break
+        if not finished:
+            raise ValueError("the poll is still running (a full cycle takes one poll interval); try again shortly")
         return {
             "ok": True,
             "summary": {k: beat.get(k) for k in ("checks", "alerts")},
@@ -211,7 +244,7 @@ def api_poll(_body: dict[str, Any]) -> dict[str, Any]:
 
     load_session_env()
     cfg = load_config()
-    client = AmulClient(cfg, cookie_jar=CLI_COOKIE_JAR)
+    client = AmulClient(cfg, cookie_jar=UI_COOKIE_JAR)
     db = StockDB(DB_PATH)
     guard = SessionGuard(client, cfg)
     summary = run_poll(client, db, cfg, guard=guard, alerts_enabled=True)
@@ -243,7 +276,7 @@ def api_simulate(body: dict[str, Any]) -> dict[str, Any]:
     reload_session_env()
     pincode = str(body.get("pincode") or "").strip()
     product = str(body.get("product") or "").strip()
-    dry_run = bool(body.get("dry_run", False))
+    dry_run = _bool(body.get("dry_run"), False)
     if not pincode:
         raise ValueError("pincode required")
 
@@ -307,7 +340,7 @@ def api_control(body: dict[str, Any]) -> dict[str, Any]:
     elif action == "resume":
         res = ce.resume_daemon()
     else:
-        return {"ok": False, "error": f"unknown action {action!r}"}
+        raise ValueError(f"unknown action {action!r}: use pause or resume")
     return {"ok": True, "action": action, "result": res, "daemon": ce.daemon_state()}
 
 
@@ -382,8 +415,12 @@ class Handler(BaseHTTPRequestHandler):
             if ctype != "application/json":
                 return False
             origin = (self.headers.get("Origin") or "").strip().lower()
-            if origin and origin.split("://", 1)[-1] != host:
-                return False
+            if origin:
+                # Behind a reverse proxy the browser's Origin matches the forwarded host.
+                hosts = {host, (self.headers.get("X-Forwarded-Host") or "").strip().lower()}
+                hosts |= {h.replace("localhost", "127.0.0.1") for h in hosts}
+                if origin.split("://", 1)[-1].replace("localhost", "127.0.0.1") not in hosts:
+                    return False
         return True
 
     def _authorized(self) -> bool:
@@ -406,8 +443,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method: str) -> None:
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
-        if path == "/healthz":  # for container health checks; reveals nothing
-            self._send_json({"ok": True})
+        if path == "/healthz":  # for container health checks; reveals nothing sensitive
+            from amul_watch.daemon import POLLER_RUNNING, watcher_state
+
+            beat = watcher_state().get("last_poll") or {}
+            # Unhealthy when the poller is meant to run but three cycles in a row read
+            # nothing (for example a TLS proxy blocking curl), so `docker ps` shows it.
+            failing = POLLER_RUNNING.is_set() and int(beat.get("failed_cycles") or 0) >= 3
+            self._send_json({"ok": not failing, "failed_cycles": beat.get("failed_cycles", 0)},
+                            503 if failing else 200)
             return
         if not self._same_origin(method):
             self._send_json({"error": "forbidden: cross-site request or unknown Host"}, 403)
@@ -424,8 +468,8 @@ class Handler(BaseHTTPRequestHandler):
         if fn is None:
             self._send_json({"error": "not found", "route": route}, 404)
             return
-        body = _read_body(self) if method == "POST" else _parse_query(self.path)
         try:
+            body = _read_body(self) if method == "POST" else _parse_query(self.path)
             self._send_json(fn(body))
         except Exception as exc:  # surface config errors to the UI
             log.exception("api error on %s", route)
@@ -436,6 +480,44 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self._dispatch("POST")
+
+
+def _lan_ips() -> list[str]:
+    """Private (home network) IPv4 addresses of this machine, for the phone URL.
+
+    Asking the OS for the default route is not enough: a full-tunnel VPN answers with
+    its own address, which a phone on the same Wi-Fi cannot reach.
+    """
+    import ipaddress
+    import re
+    import shutil
+    import socket
+    import subprocess
+
+    found: list[str] = []
+    try:
+        found += socket.gethostbyname_ex(socket.gethostname())[2]
+    except OSError:
+        pass
+    for cmd in (["ip", "-4", "-o", "addr"], ["ifconfig", "-a"], ["ipconfig"]):
+        if shutil.which(cmd[0]):
+            try:
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
+            except (OSError, subprocess.SubprocessError):
+                continue
+            found += re.findall(r"(?:inet |IPv4 Address[ .]*: )(\d+\.\d+\.\d+\.\d+)", out)
+            break
+    result: list[str] = []
+    for addr in found:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        # RFC 1918 only: skips loopback, link-local and 100.64/10 (VPNs, Tailscale).
+        if ip.is_private and not ip.is_loopback and not ip.is_link_local and addr not in result \
+                and ip not in ipaddress.ip_network("100.64.0.0/10"):
+            result.append(addr)
+    return result
 
 
 def serve(host: str = "127.0.0.1", port: int = 8847, *, open_browser: bool = True,
@@ -459,6 +541,10 @@ def serve(host: str = "127.0.0.1", port: int = 8847, *, open_browser: bool = Tru
     if host not in ("127.0.0.1", "localhost", "::1") and not os.environ.get("AMUL_WATCH_UI_PASSWORD"):
         log.warning("UI is reachable from the network with no password: set AMUL_WATCH_UI_PASSWORD")
     print(f"amul-watch UI: {url}" + ("  (poller running)" if with_poller else ""))
+    if host in ("0.0.0.0", "::"):
+        print(f"  listening on all interfaces, port {port}")
+        for lan in _lan_ips()[:3]:
+            print(f"  on your phone (same Wi-Fi): http://{lan}:{port}/")
     print("  Ctrl+C to stop")
     if open_browser:
         def _open() -> None:

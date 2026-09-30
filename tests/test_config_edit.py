@@ -106,3 +106,32 @@ def test_delete_and_toggle_work_on_short_names_from_the_example() -> None:
     ce.delete_watch("110001", "rose-lassi")
     pin = next(p for p in config.load_config()["pincodes"] if str(p["pincode"]) == "110001")
     assert pin["products"] == [] and not pin.get("disabled_products")
+
+
+def test_bad_input_is_rejected_not_saved() -> None:
+    before = config.DEFAULT_CONFIG.read_text()
+    for call in (
+        lambda: ce.upsert_watch("400001", "", ["desktop"]),
+        lambda: ce.upsert_watch("400001", "no-such-thing", ["desktop"]),
+        lambda: ce.upsert_watch("400001", "rose-lassi", ["ghost"]),
+        lambda: ce.upsert_watch("40001", "rose-lassi", ["desktop"]),
+        lambda: ce.set_name_list("system_alerts", ["ghost"]),
+        lambda: ce.upsert_notifier("bad name", "desktop", {}),
+        lambda: ce.upsert_product(""),
+        lambda: ce.upsert_product("some-other-alias", short="rose-lassi"),
+    ):
+        with pytest.raises(ValueError):
+            call()
+    assert config.DEFAULT_CONFIG.read_text() == before
+
+
+def test_pasted_url_with_query_string() -> None:
+    res = ce.upsert_product("https://shop.amul.com/en/product/amul-kool-koko-200-ml?utm=x#top", short="koko")
+    assert res["alias"] == "amul-kool-koko-200-ml"
+
+
+def test_init_force_keeps_secrets() -> None:
+    config.SESSION_ENV.write_text("SMTP_PASSWORD=keep-me\n")
+    config.init_home(force=True)
+    assert "keep-me" in config.SESSION_ENV.read_text()
+    assert config.DEFAULT_CONFIG.with_name("config.yaml.bak").is_file()

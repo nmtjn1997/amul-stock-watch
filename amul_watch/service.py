@@ -167,9 +167,14 @@ def _win_install() -> int:
     command = subprocess.list2cmdline(_argv()).replace('"', '""')
     script = _startup_script()
     script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(f'CreateObject("WScript.Shell").Run "{command}", 0, False\r\n', encoding="utf-8")
-    subprocess.Popen(["wscript.exe", str(script)])
-    print(f"installed {script} (starts at every logon, and started now)")
+    script.write_text(f'CreateObject("WScript.Shell").Run "{command}", 0, False\r\n', encoding="utf-16")
+    from amul_watch.daemon import watcher_state
+
+    if watcher_state()["running"]:
+        print(f"installed {script} (starts at every logon; already running now)")
+    else:
+        subprocess.Popen(["wscript.exe", str(script)])
+        print(f"installed {script} (starts at every logon, and started now)")
     return 0
 
 
@@ -192,6 +197,13 @@ def _dispatch(action: str) -> int:
     elif sys.platform.startswith("win"):
         table = {"install": _win_install, "uninstall": _win_uninstall, "status": _win_status}
     else:
+        import shutil
+
+        if not shutil.which("systemctl"):
+            print("systemd not found (containers, WSL1 and some distros do not have it).")
+            print("Run `amul-watch serve` under your own supervisor instead (tmux, nohup,")
+            print("a cron @reboot line), or use Docker, which restarts it for you.")
+            return 2
         table = {"install": _linux_install, "uninstall": _linux_uninstall, "status": _linux_status}
     return table[action]()
 

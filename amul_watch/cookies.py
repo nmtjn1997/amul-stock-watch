@@ -10,7 +10,9 @@ def extract_cookie(raw: str) -> str:
         r'-b\s+\$?"([^"]+)"\s',
         r"(?i)-b\s+\$?'([^']+)'",
         r'(?i)-b\s+\$?"([^"]+)"',
-        r"(?i)cookie:\s*([^\n]+)",
+        r"(?i)-H\s+\$?'cookie:\s*([^']+)'",
+        r'(?i)-H\s+\$?"cookie:\s*([^"]+)"',
+        r"(?i)^cookie:\s*([^\n]+)",
     ]
     for pattern in patterns:
         m = re.search(pattern, text, re.DOTALL)

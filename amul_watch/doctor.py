@@ -47,7 +47,20 @@ def run() -> int:
 
     notifiers = notifier_map(cfg)
     _line(bool(notifiers) or None, f"{len(notifiers)} notifier(s) defined")
+    if not cfg.get("system_alerts"):
+        _line(None, "system_alerts is empty: nobody is told if Amul becomes unreachable")
+    import os
+    import shutil
+
+    headless = sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     for name, spec in notifiers.items():
+        if spec.get("type") in ("desktop", "browser") and headless:
+            _line(None, f"notifier {name} ({spec.get('type')}): no desktop session here (server or Docker), "
+                        "it will not reach you. Add ntfy, Telegram or email")
+            continue
+        if spec.get("type") == "desktop" and sys.platform.startswith("linux") and not shutil.which("notify-send"):
+            _line(None, f"notifier {name} (desktop): notify-send not installed (package libnotify-bin)")
+            continue
         problems = validate(spec)
         _line(not problems, f"notifier {name} ({spec.get('type')})" + (f": {'; '.join(problems)}" if problems else ""))
         failures += bool(problems)

@@ -59,3 +59,14 @@ def test_same_origin_json_post_works(server) -> None:
 def test_healthz_needs_nothing(server) -> None:
     with urllib.request.urlopen(server + "/healthz", timeout=5) as resp:
         assert resp.status == 200
+
+
+def test_invalid_json_and_string_lists(server) -> None:
+    host = server.split("://")[1]
+    hdrs = {"Content-Type": "application/json", "Origin": f"http://{host}"}
+    req = urllib.request.Request(server + "/api/watch", data=b"{not json", headers=hdrs, method="POST")
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(req, timeout=5)
+    assert b"not valid JSON" in exc.value.read()
+    assert _post(server + "/api/watch", {"pincode": "560001", "products": "rose-lassi", "recipients": "desktop"}, hdrs) == 200
+    assert config.load_config()["alerts"]["560001:rose-lassi"] == ["desktop"]

@@ -57,7 +57,7 @@ def run(action: str) -> int:
             print("nothing pasted")
             return 1
         cookie = extract_cookie(raw)
-        if len(cookie) < 20:
+        if len(cookie) < 10 or "=" not in cookie:
             print(f"that does not look like a cookie ({len(cookie)} chars)")
             return 1
         _set_env_var("AMUL_COOKIE", cookie)

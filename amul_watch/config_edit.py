@@ -181,6 +181,22 @@ def _known_products(cfg: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+def _known_alias(cfg: dict[str, Any], product: str) -> str:
+    """The full alias of a product in the watchlist, or a clear error."""
+    alias = resolve_product_alias(cfg, product)
+    if not alias or not any(str(i.get("alias") or "") == alias for i in cfg.get("watchlist") or []):
+        known = ", ".join(product_short(cfg, str(i.get("alias"))) for i in cfg.get("watchlist") or []) or "none yet"
+        raise ValueError(f"unknown product {product!r}: add it under Products first (known: {known})")
+    return alias
+
+
+def _check_notifier_names(cfg: dict[str, Any], names: list[str]) -> None:
+    known = set((cfg.get("notifiers") or {}).keys())
+    missing = [n for n in names if n not in known]
+    if missing:
+        raise ValueError(f"unknown notifier(s) {', '.join(missing)}: add them in the Notifiers tab first")
+
+
 def _norm_pin(value: Any) -> str:
     digits = re.sub(r"\D", "", str(value or ""))
     return digits if len(digits) == 6 else ""
@@ -258,7 +274,10 @@ def get_state() -> dict[str, Any]:
             "enabled": enabled,
             "explicit": bool(addr["products"]),
             # True when this watch has its own route; False means it follows default_alerts.
-            "has_route": any(k in (cfg.get("alerts") or {}) for k in (f"{pin}:{short}", f"{pin}:{alias}")),
+            "has_route": any(
+                k in (cfg.get("alerts") or {})
+                for k in (f"{pin}:{short}", f"{pin}:{alias}", f"*:{short}", f"*:{alias}")
+            ),
         }
 
     from amul_watch.watchlist_util import pin_product_allow
@@ -439,10 +458,12 @@ def upsert_watch(
     """
     pin = _norm_pin(pincode)
     if not pin:
-        raise ValueError(f"invalid pincode: {pincode!r}")
+        raise ValueError(f"invalid pincode: {pincode!r} (six digits)")
     cfg = load_config()
-    alias = resolve_product_alias(cfg, product)
+    alias = _known_alias(cfg, product)
     short = product_short(cfg, alias)
+    if recipients:
+        _check_notifier_names(cfg, [str(r).strip() for r in recipients if str(r).strip()])
     if recipients is not None:
         recipients = [str(r).strip() for r in recipients if str(r).strip()]
 
@@ -511,8 +532,10 @@ def _set_route(alerts: Any, key: str, recipients: list[str]) -> bool:
 @_locked
 def delete_watch(pincode: str, product: str) -> dict[str, Any]:
     pin = _norm_pin(pincode)
+    if not pin:
+        raise ValueError(f"invalid pincode: {pincode!r} (six digits)")
     cfg = load_config()
-    alias = resolve_product_alias(cfg, product)
+    alias = _known_alias(cfg, product)
     short = product_short(cfg, alias)
 
     cfg_doc = _rt_load(DEFAULT_CONFIG)
@@ -618,11 +641,18 @@ def delete_address(pincode: str) -> dict[str, Any]:
 def upsert_product(alias_or_short: str, label: str = "", short: str = "", enquiry_name: str = "") -> dict[str, Any]:
     """Add or edit a product. `alias` is the slug in the shop URL: shop.amul.com/en/product/<alias>."""
     cfg = load_config()
-    alias = resolve_product_alias(cfg, alias_or_short)
-    alias = alias.rstrip("/").rsplit("/product/", 1)[-1]  # accept a pasted product URL
+    raw = str(alias_or_short or "").strip()
+    if not raw:
+        raise ValueError("product URL or alias required")
+    raw = raw.split("#", 1)[0].split("?", 1)[0].rstrip("/")  # accept a pasted product URL
+    alias = resolve_product_alias(cfg, raw).rsplit("/product/", 1)[-1].lower()
     if not re.fullmatch(r"[a-z0-9-]+", alias):
         raise ValueError(f"invalid product alias {alias!r}: use the slug from the product URL")
     short = re.sub(r"[^a-z0-9-]+", "-", short.strip().lower()).strip("-")
+    for other in cfg.get("watchlist") or []:
+        other_alias = str(other.get("alias") or "")
+        if other_alias != alias and short and short in (str(other.get("short") or ""), other_alias):
+            raise ValueError(f"short name {short!r} is already used by {other_alias}")
     cfg_doc = _rt_load(DEFAULT_CONFIG)
     item = _find_watch_item(cfg_doc, alias)
     if item is None:
@@ -641,7 +671,7 @@ def upsert_product(alias_or_short: str, label: str = "", short: str = "", enquir
 # Settings that are secrets. The UI gets them masked unless they are ${VAR} references,
 # and saving the mask back keeps the stored value.
 SECRET_KEYS = {"token", "bot_token", "password"}
-SECRET_URL_TYPES = {"slack_webhook", "discord"}
+SECRET_URL_TYPES = {"slack_webhook", "discord", "webhook"}
 MASK = "********"
 
 
@@ -657,6 +687,8 @@ def _masked(spec: dict[str, Any]) -> dict[str, Any]:
             continue
         if _is_secret(ntype, key) and isinstance(value, str) and value and not value.startswith("${"):
             out[key] = MASK
+        elif key == "headers" and isinstance(value, dict):
+            out[key] = {k: (v if str(v).startswith("${") else MASK) for k, v in value.items()}
         else:
             out[key] = value
     return out
@@ -674,8 +706,8 @@ def upsert_notifier(
     """
     name = str(name).strip()
     ntype = str(ntype).strip().lower()
-    if not name:
-        raise ValueError("notifier name required")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+        raise ValueError(f"notifier name {name!r}: use letters, digits, - _ or . (routes refer to it)")
     if ntype not in NOTIFIER_TYPES:
         raise ValueError(f"unknown notifier type {ntype!r} (known: {', '.join(NOTIFIER_TYPES)})")
     notes_doc = _rt_load(NOTIFICATIONS_CONFIG)
@@ -742,6 +774,7 @@ def set_name_list(key: str, names: list[str]) -> dict[str, Any]:
     """default_alerts, system_alerts or qty_update_alerts."""
     if key not in ("default_alerts", "system_alerts", "qty_update_alerts"):
         raise ValueError(f"not a notifier list: {key!r}")
+    _check_notifier_names(load_config(), [str(n).strip() for n in names if str(n).strip()])
     notes_doc = _rt_load(NOTIFICATIONS_CONFIG)
     seq = _new_seq()
     for n in names:
