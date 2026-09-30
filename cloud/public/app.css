@@ -178,3 +178,5 @@ details.more summary { list-style: none; }
 details.more summary::-webkit-details-marker { display: none; }
 details.more summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
 details.more[open] summary::before { transform: rotate(90deg); }
+.seg[role="tablist"] { display: grid; grid-template-columns: repeat(4, 1fr); }
+.seg[role="tablist"] button { padding: 7px 4px; }

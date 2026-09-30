@@ -866,14 +866,22 @@ async function peopleProductsSection(which) {
   }
   const purl = h("input", { type: "url", placeholder: "https://shop.amul.com/en/product/...", id: "purl" });
   const plabel = h("input", { type: "text", placeholder: "Short name people will see", id: "plabel", maxlength: "80" });
-  const products = d.products.map((p) => h("div", { class: "li" },
+  // One request at a time per button; errors show instead of failing silently.
+  const pAct = (body) => async (e) => {
+    const b = e.currentTarget;
+    busy(b, true, "…");
+    try { await api("/api/admin/products", body); adminView(); }
+    catch (x) { toast(x.message, true); busy(b, false); }
+  };
+  const last = d.products.length - 1;
+  const products = d.products.map((p, i) => h("div", { class: "li" },
     h("div", { class: "main" }, h("div", {}, p.label, " ", p.enabled ? null : h("span", { class: "pill off" }, "hidden")),
       h("div", { class: "muted small" }, `${p.watches} watching`)),
     h("div", { class: "row" },
-      h("button", { class: "ghost", "aria-label": `Move ${p.label} up`, title: "Show earlier", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "up" }); adminView(); } }, "↑"),
-      h("button", { class: "ghost", "aria-label": `Move ${p.label} down`, title: "Show later", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "down" }); adminView(); } }, "↓"),
-      p.enabled ? h("button", { class: "ghost", onclick: async () => { await api("/api/admin/products", { alias: p.alias, remove: true }); adminView(); } }, "Hide")
-        : h("button", { onclick: async () => { await api("/api/admin/products", { alias: p.alias, label: p.label }); adminView(); } }, "Show"))));
+      h("button", { class: "ghost", "aria-label": `Move ${p.label} up`, title: "Show earlier", disabled: i === 0, onclick: pAct({ alias: p.alias, move: "up" }) }, "↑"),
+      h("button", { class: "ghost", "aria-label": `Move ${p.label} down`, title: "Show later", disabled: i === last, onclick: pAct({ alias: p.alias, move: "down" }) }, "↓"),
+      p.enabled ? h("button", { class: "ghost", onclick: pAct({ alias: p.alias, remove: true }) }, "Hide")
+        : h("button", { onclick: pAct({ alias: p.alias, label: p.label }) }, "Show"))));
   return [h("div", { class: "card" }, h("h2", {}, "Products people can pick"), h("p", { class: "small muted" }, "Shown in this order. Use the arrows to reorder."),
     h("div", { class: "list" }, products),
     h("form", { onsubmit: async (e) => {
