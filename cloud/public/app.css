@@ -133,6 +133,9 @@ details.more summary { cursor: pointer; font-weight: 650; }
 .copyrow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .copyrow .topic { flex: 1; min-width: 0; }
 .qrwrap { display: flex; justify-content: center; margin: 12px 0; }
+.qrpair { display: flex; justify-content: center; gap: 24px; margin: 8px 0 12px; }
+.qrpair figure { margin: 0; text-align: center; }
+.qrpair img { display: block; }
 .qr { background: #fff; padding: 8px; border-radius: 12px; image-rendering: pixelated; max-width: 220px; height: auto; }
 .note { background: var(--warnbg); color: var(--ink); border-radius: 12px; padding: 12px 14px; font-size: 15px; }
 .card.warn { border-color: var(--warn); background: var(--warnbg); }
