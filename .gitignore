@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.DS_Store
+# runtime data when AMUL_WATCH_HOME points inside the repo (e.g. docker compose)
+amul-data/
+.env

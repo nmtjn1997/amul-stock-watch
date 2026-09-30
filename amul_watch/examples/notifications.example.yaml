@@ -1,0 +1,75 @@
+# amul-watch notifications: WHO hears about a restock.
+#
+# 1. notifiers: named destinations. List every type with `amul-watch notifiers`.
+# 2. alerts:    "pincode:product" -> notifier names. "*" matches any pincode.
+# 3. default_alerts: used when no route matches.
+#
+# Secrets: write ${NAME} here and put NAME=value in the .env file next to this one.
+# Try it:  amul-watch simulate stock --pincode 110001 --dry-run
+
+notifiers:
+  desktop:
+    type: desktop            # notification on the machine running amul-watch
+  browser:
+    type: browser            # opens the product page
+
+  # phone:
+  #   type: ntfy             # install the ntfy app, subscribe to the same topic
+  #   topic: amul-watch-change-me-to-something-random
+
+  # me-email:
+  #   type: email
+  #   to: [you@example.com]
+
+  # family-telegram:
+  #   type: telegram
+  #   bot_token: ${TELEGRAM_BOT_TOKEN}
+  #   chat_id: "123456789"
+
+  # team-slack:
+  #   type: slack_webhook
+  #   url: ${SLACK_WEBHOOK_URL}
+
+  # friend-slack-dm:
+  #   type: slack             # bot token; channel = C... channel id or U... user id
+  #   token: ${SLACK_BOT_TOKEN}
+  #   channel: U0123456789
+
+  # discord:
+  #   type: discord
+  #   url: ${DISCORD_WEBHOOK_URL}
+
+  # automation:
+  #   type: webhook          # POSTs the alert as JSON
+  #   url: https://example.com/hooks/amul
+
+  # my-script:
+  #   type: command          # alert fields arrive as AMUL_* env vars
+  #   command: ["/usr/local/bin/my-notify", "--urgent"]
+
+alerts:
+  "110001:rose-lassi": [desktop, browser]
+  # "*:plain-lassi": [phone]
+
+default_alerts: [desktop]
+
+# Session or connectivity trouble that needs a human.
+system_alerts: [desktop]
+
+# Quantity changes while a product stays in stock (can be chatty; leave empty to skip).
+qty_update_alerts: []
+qty_update_min_delta: 2
+
+# SMTP server for `type: email` notifiers. Gmail: create an app password at
+# https://myaccount.google.com/apppasswords and put it in .env as SMTP_PASSWORD.
+email:
+  host: smtp.gmail.com
+  port: 587
+  starttls: true
+  username: you@gmail.com
+  password: ${SMTP_PASSWORD}
+  from: you@gmail.com
+
+# Addresses signed up for Amul's own notify-me form by `amul-watch register-enquiries`.
+# Defaults to every address on an email notifier.
+# enquiry_emails: [you@example.com]

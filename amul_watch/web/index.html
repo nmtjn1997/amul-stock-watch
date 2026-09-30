@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Amul Stock Watch</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0 0 24 24'%3E%3Crect%20width='24'%20height='24'%20rx='5'%20fill='%23e4022b'/%3E%3Cpath%20d='M12 3.5C12 3.5 7 9 7 13a5 5 0 0 0 10 0c0-4-5-9.5-5-9.5z'%20fill='%23fff'/%3E%3C/svg%3E" />
+
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --panel2:#f0f2f5; --ink:#1a1d21; --muted:#6b7280;
+    --line:#e2e5ea; --accent:#2f6df6; --accent-ink:#fff; --ok:#16a34a; --okbg:#e7f6ec;
+    --warn:#b45309; --warnbg:#fff4e2; --bad:#dc2626; --badbg:#fdeaea; --chip:#eef1f6;
+    --radius:12px; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 20px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f1216; --panel:#171b21; --panel2:#1f242c; --ink:#e8ebef; --muted:#94a0af;
+      --line:#2a313a; --accent:#5b8cff; --accent-ink:#0a0d12; --ok:#3ecf7e; --okbg:#12321f;
+      --warn:#e2a03a; --warnbg:#332611; --bad:#f16b6b; --badbg:#361a1a; --chip:#232932;
+      --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  header{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);
+         padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:var(--shadow)}
+  header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:-.2px}
+  header h1 .amul{color:var(--accent)}
+  .grow{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12.5px;
+        font-weight:600;background:var(--chip);border:1px solid var(--line)}
+  .pill .dot{width:8px;height:8px;border-radius:50%}
+  .pill.ok{background:var(--okbg);color:var(--ok)} .pill.ok .dot{background:var(--ok)}
+  .pill.bad{background:var(--badbg);color:var(--bad)} .pill.bad .dot{background:var(--bad)}
+  .pill.warn{background:var(--warnbg);color:var(--warn)} .pill.warn .dot{background:var(--warn)}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+         padding:7px 13px;border-radius:9px;font-weight:550;transition:.12s}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  button.ghost{background:transparent}
+  button.danger{color:var(--bad);border-color:transparent;background:transparent;padding:6px 8px}
+  button.danger:hover{background:var(--badbg)}
+  button.sm{padding:4px 9px;font-size:13px}
+  nav.tabs{display:flex;gap:4px;padding:10px 20px 0;flex-wrap:wrap;background:var(--bg);
+           position:sticky;top:57px;z-index:15}
+  nav.tabs button{border:none;background:transparent;border-radius:9px 9px 0 0;color:var(--muted);
+                  padding:9px 15px;font-weight:600}
+  nav.tabs button.active{color:var(--ink);background:var(--panel);box-shadow:0 -1px 0 var(--line) inset}
+  main{padding:18px 20px 60px;max-width:1080px;margin:0 auto}
+  .banner{display:none;align-items:center;gap:12px;background:var(--warnbg);color:var(--warn);
+          border:1px solid var(--warn);border-radius:var(--radius);padding:11px 15px;margin-bottom:16px;font-weight:550}
+  .banner.show{display:flex}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+        box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+  .card > .head{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .card > .head h2{margin:0;font-size:15px;font-weight:650}
+  .card > .head .sub{color:var(--muted);font-size:13px;font-weight:400}
+  .card > .body{padding:6px 16px 14px}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td.mono,.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .chip{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:7px;
+        padding:2px 8px;font-size:12.5px;margin:2px 4px 2px 0;white-space:nowrap}
+  .chip.mail{color:var(--accent)} .chip.dm{color:#8957e5} .chip.mac{color:var(--muted)} .chip.browser{color:#d68a00}
+  .badge{font-size:12px;font-weight:700;padding:2px 9px;border-radius:7px}
+  .badge.in{background:var(--okbg);color:var(--ok)} .badge.out{background:var(--panel2);color:var(--muted)}
+  .muted{color:var(--muted)} .small{font-size:13px}
+  .grpttl{font-weight:650;font-size:13.5px;padding:14px 8px 6px;color:var(--ink)}
+  .grpttl .pin{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+  .row-actions{display:flex;gap:4px;justify-content:flex-end}
+  .empty{padding:26px 10px;text-align:center;color:var(--muted)}
+  .toggle{position:relative;width:38px;height:22px;border-radius:999px;background:var(--line);border:none;padding:0;flex:0 0 auto}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
+                 background:#fff;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .toggle.on{background:var(--ok)} .toggle.on::after{left:18px}
+  /* modal */
+  .scrim{position:fixed;inset:0;background:rgba(10,12,16,.55);display:none;align-items:flex-start;
+         justify-content:center;padding:40px 16px;z-index:50;overflow:auto}
+  .scrim.show{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+         width:100%;max-width:520px;overflow:hidden}
+  .modal .mhead{padding:15px 18px;border-bottom:1px solid var(--line);font-weight:650;font-size:16px}
+  .modal .mbody{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  .modal .mfoot{padding:13px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+  label.field{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:600;color:var(--muted)}
+  input,select{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);
+               color:var(--ink);width:100%}
+  input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+  .checks{display:flex;flex-direction:column;gap:2px;max-height:210px;overflow:auto;border:1px solid var(--line);
+          border-radius:9px;padding:6px;background:var(--panel2)}
+  .checks label{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;font-weight:500;cursor:pointer}
+  .checks label:hover{background:var(--panel)}
+  .checks input{width:auto}
+  .checks .rtype{font-size:11.5px;color:var(--muted);margin-left:auto}
+  .hint{font-size:12.5px;color:var(--muted);font-weight:400}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);
+         padding:11px 18px;border-radius:10px;font-weight:600;box-shadow:var(--shadow);opacity:0;transition:.2s;
+         pointer-events:none;z-index:80;max-width:90vw}
+  .toast.show{opacity:1}
+  .toast.err{background:var(--bad);color:#fff}
+  .logbox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--panel2);
+          border:1px solid var(--line);border-radius:10px;padding:11px 13px;white-space:pre-wrap;color:var(--muted);
+          max-height:200px;overflow:auto}
+  .ctrlgrid{display:flex;gap:8px;flex-wrap:wrap}
+  @media (max-width:640px){ th.hide-sm,td.hide-sm{display:none} main{padding:14px 12px 60px} header{padding:12px 14px} }
+  /* notifications timeline */
+  .notif{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden;background:var(--panel)}
+  .notif-head{display:flex;align-items:center;gap:9px;padding:11px 13px;cursor:pointer}
+  .notif-head:hover{background:var(--panel2)}
+  .notif-head .caret{color:var(--muted);transition:.15s;font-size:11px}
+  .notif.open .notif-head .caret{transform:rotate(90deg)}
+  .notif-detail{padding:4px 13px 13px;border-top:1px solid var(--line);display:none;flex-direction:column;gap:4px}
+  .notif.open .notif-detail{display:flex}
+  .notif .badge.test{background:var(--warnbg);color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="amul">Amul</span> Stock Watch</h1>
+  <span id="daemonPill" class="pill"><span class="dot"></span><span id="daemonText">…</span></span>
+  <span class="grow"></span>
+  <button class="sm" id="btnRefresh" title="Reload">↻ Refresh</button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="watches" class="active">Watches</button>
+  <button data-tab="stock">Live Stock</button>
+  <button data-tab="notifiers">Notifiers</button>
+  <button data-tab="lists">Addresses &amp; Products</button>
+  <button data-tab="notifs">Notifications</button>
+  <button data-tab="controls">Controls</button>
+</nav>
+
+<main>
+  <!-- WATCHES -->
+  <section data-panel="watches">
+    <div class="card">
+      <div class="head">
+        <h2>Watches</h2>
+        <span class="sub">who gets alerted, for which product, at which pincode</span>
+        <span class="grow"></span>
+        <label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;margin-right:2px">
+          <input type="checkbox" id="chkShowDisabled" style="width:auto"> Show disabled <span id="disCount" class="chip" style="display:none"></span>
+        </label>
+        <button class="sm" id="btnFillDisabled" title="Add every address × product combo as a disabled watch you can toggle on later">+ Fill disabled</button>
+        <button class="sm" id="btnSimulate" title="Send a test alert through the real notifiers">Test alert</button>
+        <button class="primary sm" id="btnAddWatch">+ Add watch</button>
+      </div>
+      <div class="body" id="watchesBody"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- LIVE STOCK -->
+  <section data-panel="stock" hidden>
+    <div class="card">
+      <div class="head">
+        <h2>Live stock</h2>
+        <span class="sub" id="stockSub">from the watcher's database</span>
+        <span class="grow"></span>
+        <button class="sm" id="btnStockRefresh" title="Re-read the watcher database">↻ Now</button>
+        <button class="sm primary" id="btnStockLive" title="Fetch live from Amul right now (one full poll)">⟳ Force refresh (live)</button>
+      </div>
+      <div class="body" id="stockBody"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- NOTIFIERS -->
+  <section data-panel="notifiers" hidden>
+    <div class="card">
+      <div class="head">
+        <h2>Notifiers</h2><span class="sub">named destinations you tick on a watch (email, phone push, chat, desktop)</span>
+      </div>
+      <div class="body" id="recipientsBody"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="card">
+      <div class="head" id="notifierBuilderHead">
+        <h2>Add a notifier</h2>
+        <span class="sub">then tick it on any watch</span>
+      </div>
+      <div class="body" id="notifierBuilder"></div>
+    </div>
+    <div class="card">
+      <div class="head"><h2>Notifier lists</h2><span class="sub">who hears about things that are not a specific watch</span></div>
+      <div class="body" id="defaultsBody"></div>
+    </div>
+  </section>
+
+  <section data-panel="lists" hidden>
+    <div class="card">
+      <div class="head"><h2>Addresses</h2><span class="sub">pincodes people want alerts for</span>
+        <span class="grow"></span><button class="primary sm" id="btnAddAddress">+ Add address</button></div>
+      <div class="body" id="addressesBody"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="card">
+      <div class="head"><h2>Products</h2><span class="sub">watched Amul products</span>
+        <span class="grow"></span><button class="primary sm" id="btnAddProduct">+ Add product</button></div>
+      <div class="body" id="productsBody"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- NOTIFICATIONS -->
+  <section data-panel="notifs" hidden>
+    <div class="card">
+      <div class="head">
+        <h2>Notifications sent</h2>
+        <span class="sub">newest first, tap a row to expand</span>
+        <span class="grow"></span>
+        <button class="sm" id="btnNotifRefresh" title="Reload the timeline">↻ Refresh</button>
+      </div>
+      <div class="body" id="notifsBody"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- CONTROLS -->
+  <section data-panel="controls" hidden>
+    <div class="card">
+      <div class="head"><h2>Watcher control</h2><span class="sub" id="ctrlStatus"></span></div>
+      <div class="body">
+        <div class="ctrlgrid">
+          <button id="cPause">Pause</button>
+          <button id="cResume">Resume</button>
+          <button class="ghost" id="cNormalize" title="Give every pincode an explicit per-product watch set">Normalize per-pin products</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="head">
+        <h2>Logs</h2>
+        <span class="grow"></span>
+        <select id="logFile" style="width:auto;max-width:210px"></select>
+        <button class="sm" id="logFollow">▶ Follow</button>
+      </div>
+      <div class="body">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 0 10px">
+          <code class="small mono muted" id="logCmd" style="flex:1;min-width:220px;word-break:break-all"></code>
+          <button class="sm" id="logCopy" title="Copy the tail command to run in a terminal">Copy</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <button class="sm ghost" id="logOlder">↑ Load older</button>
+          <button class="sm ghost" id="logNewest">↓ Jump to newest</button>
+          <span class="grow"></span>
+          <span class="hint" id="logCount"></span>
+        </div>
+        <div class="logbox" id="logBox" style="max-height:460px">…</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="head"><h2>Files</h2></div>
+      <div class="body small mono muted" id="filesBody"></div>
+    </div>
+  </section>
+</main>
+
+<div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s,r=document)=>r.querySelector(s);
+const el=(t,a={},...kids)=>{const n=document.createElement(t);for(const[k,v]of Object.entries(a)){
+  if(k==="class")n.className=v;else if(k==="html")n.innerHTML=v;else if(k.startsWith("on"))n.addEventListener(k.slice(2),v);
+  else if(v!==null&&v!==undefined)n.setAttribute(k,v);}
+  for(const c of kids.flat()){if(c==null)continue;n.appendChild(typeof c==="string"?document.createTextNode(c):c);}return n;};
+let STATE=null;
+
+async function api(path, body){
+  const opt = body ? {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(()=>({error:"bad response"}));
+  if(!r.ok || data.error) throw new Error(data.error || ("HTTP "+r.status));
+  return data;
+}
+function toast(msg, err){const t=$("#toast");t.textContent=msg;t.className="toast show"+(err?" err":"");
+  clearTimeout(t._h);t._h=setTimeout(()=>t.className="toast",err?4200:2200);}
+
+function setDaemonPill(d){
+  const pill=$("#daemonPill"),txt=$("#daemonText");
+  pill.className="pill "+(d.paused?"warn":d.running?"ok":"bad");
+  txt.textContent=d.paused?"Paused":d.running?("Running · polled "+(d.heartbeat_age_seconds??"?")+"s ago"):"Not polling";
+}
+/* ---------- WATCHES ---------- */
+function recipientChips(names, summary){
+  const wrap=el("div");
+  if(!names||!names.length){wrap.appendChild(el("span",{class:"chip muted"},"nobody"));return wrap;}
+  names.forEach(n=>{
+    const rc=(STATE.recipients||[]).find(r=>r.name===n);
+    const cls=rc? ({email:"mail",desktop:"mac",browser:"browser"}[rc.type]||"dm") : "";
+    wrap.appendChild(el("span",{class:"chip "+cls, title:(summary||[]).join(" · ")}, n));
+  });
+  return wrap;
+}
+let showDisabled=false;
+function renderWatches(){
+  const body=$("#watchesBody"); body.innerHTML="";
+  const ws=STATE.watches||[];
+  // disabled count chip in the header
+  const disTotal=ws.filter(w=>!w.enabled).length;
+  const chip=$("#disCount");
+  if(chip){ chip.textContent=disTotal; chip.style.display=disTotal?"":"none"; }
+  if(!ws.length){body.appendChild(el("div",{class:"empty"},"No watches yet. Click “+ Add watch”."));return;}
+  const byPin={};
+  ws.forEach(w=>{(byPin[w.pincode]=byPin[w.pincode]||[]).push(w);});
+  let shownAny=false;
+  Object.keys(byPin).sort().forEach(pin=>{
+    const rows=byPin[pin]; const addr=rows[0];
+    const visible = showDisabled ? rows : rows.filter(w=>w.enabled);
+    if(!visible.length) return; // hide pins whose only watches are disabled (when hidden)
+    shownAny=true;
+    const hiddenN = rows.length - visible.length;
+    body.appendChild(el("div",{class:"grpttl"}, addr.address_label+" ", el("span",{class:"pin"},"· "+pin),
+      hiddenN?el("span",{class:"pin",style:"font-size:11px"},"  ("+hiddenN+" disabled hidden)"):null));
+    const tbl=el("table");
+    tbl.appendChild(el("thead",{},el("tr",{},
+      el("th",{},"Product"),el("th",{},"Notifies"),el("th",{class:"hide-sm"},"Route"),
+      el("th",{style:"width:52px"},"On"),el("th",{style:"width:170px"},""))));
+    const tb=el("tbody");
+    visible.forEach(w=>{
+      tb.appendChild(el("tr",{class:w.enabled?"":"off",style:w.enabled?"":"opacity:.55"},
+        el("td",{}, el("strong",{},w.product_label),
+             w.enabled?null:el("span",{class:"chip muted",style:"margin-left:6px;font-size:10px"},"disabled")),
+        el("td",{}, recipientChips(w.recipients,w.recipients_summary)),
+        el("td",{class:"mono muted small hide-sm"}, w.route_key),
+        el("td",{}, el("button",{class:"toggle"+(w.enabled?" on":""),title:w.enabled?"disable (parks it, keeps the settings)":"enable",
+             onclick:()=>toggleWatch(w)})),
+        el("td",{}, el("div",{class:"row-actions"},
+             el("button",{class:"sm ghost",title:"Send a test alert for this watch",onclick:()=>openSimulate(w)},"Test"),
+             el("button",{class:"sm ghost",onclick:()=>openWatch(w)},"Edit"),
+             el("button",{class:"danger",title:"Delete permanently",onclick:()=>delWatch(w)},"✕")))
+      ));
+    });
+    tbl.appendChild(tb); body.appendChild(tbl);
+  });
+  if(!shownAny) body.appendChild(el("div",{class:"empty"},
+    showDisabled?"No watches yet.":"No enabled watches. Tick “Show disabled” to enable one of "+disTotal+" parked watches."));
+}
+async function toggleWatch(w){
+  try{const r=await api("/api/watch/toggle",{pincode:w.pincode,product:w.alias,enabled:!w.enabled});
+    toast((!w.enabled?"Enabled":"Disabled")+" "+w.product_label); await reload(false);}
+  catch(e){toast(e.message,true);}
+}
+async function delWatch(w){
+  if(!confirm(`Delete watch: ${w.product_label} @ ${w.pincode}?`))return;
+  try{const r=await api("/api/watch/delete",{pincode:w.pincode,product:w.alias});
+    toast("Deleted");await reload(false);}catch(e){toast(e.message,true);}
+}
+
+function recipientPicker(selected){
+  const box=el("div",{class:"checks"});
+  (STATE.recipients||[]).forEach(r=>{
+    const detail=(r.summary||"").replace(r.name+": ","");
+    box.appendChild(el("label",{},
+      el("input",{type:"checkbox",value:r.name, ...(selected.includes(r.name)?{checked:"checked"}:{})}),
+      el("span",{},r.name), el("span",{class:"rtype"}, detail)));
+  });
+  if(!(STATE.recipients||[]).length) box.appendChild(el("div",{class:"hint",style:"padding:8px"},"No notifiers yet. Add some in the Notifiers tab."));
+  return box;
+}
+function openWatch(w){
+  const isNew=!w;
+  const addrSel=el("select",{});
+  addrSel.appendChild(el("option",{value:""},"(new pincode below)"));
+  (STATE.addresses||[]).forEach(a=>addrSel.appendChild(
+    el("option",{value:a.pincode, ...(w&&w.pincode===a.pincode?{selected:"selected"}:{})}, a.label+" · "+a.pincode)));
+  const newPin=el("input",{placeholder:"6-digit pincode",maxlength:"6",inputmode:"numeric"});
+  const newLabel=el("input",{placeholder:"Label e.g. Mum's place"});
+  // New watch: tick any number of products, they all get the same pincode + recipients.
+  // Editing: the product is the identity of the watch, so it is fixed.
+  const prodBox=el("div",{class:"checks"});
+  (STATE.products||[]).forEach(p=>prodBox.appendChild(el("label",{},
+    el("input",{type:"checkbox",value:p.alias}), el("span",{},p.label),
+    el("span",{class:"rtype"},p.short||""))));
+  const picker=recipientPicker(w?w.recipients:(STATE.default_alerts||[]));
+  if(w){addrSel.disabled=true;}
+  showModal(isNew?"Add watch":"Edit watch", [
+    isNew? el("label",{class:"field"},"Address (existing)", addrSel):null,
+    isNew? el("div",{class:"field"},"…or new address",
+       el("div",{style:"display:flex;gap:8px"}, newPin, newLabel)) :
+       el("label",{class:"field"},"Address", el("input",{value:w.address_label+" · "+w.pincode,disabled:"disabled"})),
+    isNew? el("div",{class:"field"},"Products", prodBox,
+       el("span",{class:"hint"},"Tick as many as you like. One watch is created per product, all with the notifiers below."))
+         : el("label",{class:"field"},"Product", el("input",{value:w.product_label,disabled:"disabled"})),
+    el("div",{class:"field"},"Notify these recipients", picker,
+       el("span",{class:"hint"},"Tick every notifier that should get the back-in-stock alert. None ticked means default_alerts.")),
+  ].filter(Boolean), async()=>{
+    let pincode = w? w.pincode : (addrSel.value || newPin.value.trim());
+    const products = w? [w.alias] : [...prodBox.querySelectorAll("input:checked")].map(c=>c.value);
+    if(!pincode){toast("Pick or enter a pincode",true);return false;}
+    if(!/^\d{6}$/.test(pincode)){toast("Pincode must be 6 digits",true);return false;}
+    if(!products.length){toast("Tick at least one product",true);return false;}
+    const recipients=[...picker.querySelectorAll("input:checked")].map(c=>c.value);
+    const payload={pincode,products,recipients,enabled:true};
+    if(isNew && !addrSel.value){payload.address_label=newLabel.value.trim();}
+    try{const r=await api("/api/watch",payload);toast(products.length>1?products.length+" watches saved":"Watch saved");
+      await reload(false);return true;}catch(e){toast(e.message,true);return false;}
+  });
+}
+
+/* ---------- SIMULATE (test alerts) ---------- */
+function openSimulate(w){
+  const prods=STATE.products||[], addrs=STATE.addresses||[];
+  const prodSel=el("select",{});
+  prods.forEach(p=>prodSel.appendChild(el("option",{value:p.alias, ...(w&&w.alias===p.alias?{selected:"selected"}:{})}, p.label)));
+  const addrSel=el("select",{});
+  addrs.forEach(a=>addrSel.appendChild(el("option",{value:a.pincode, ...(w&&w.pincode===a.pincode?{selected:"selected"}:{})}, a.label+" · "+a.pincode)));
+  const out=el("div",{class:"logbox"},"Loading route preview…");
+  let busy=false;
+  async function run(dry){
+    if(busy)return; busy=true;
+    const pincode=addrSel.value, product=prodSel.value;
+    if(!pincode){out.textContent="Pick an address first.";busy=false;return;}
+    out.textContent = dry?"Previewing routes…":"Sending test alert…";
+    try{
+      const r=await api("/api/simulate",{pincode,product,dry_run:dry});
+      out.textContent = r.output || "(no output)";
+      if(!dry) toast("Test alert sent. Per-notifier results are shown above.");
+    }catch(e){ out.textContent="Error: "+e.message; toast(e.message,true); }
+    finally{ busy=false; }
+  }
+  prodSel.addEventListener("change",()=>run(true));
+  addrSel.addEventListener("change",()=>run(true));
+  const m=$("#modal"); m.innerHTML="";
+  m.appendChild(el("div",{class:"mhead"},"Test a stock alert"));
+  m.appendChild(el("div",{class:"mbody"},
+    el("label",{class:"field"},"Product",prodSel),
+    el("label",{class:"field"},"Address",addrSel),
+    el("div",{class:"field"},"What will happen", out),
+    el("span",{class:"hint"},"“Preview routes” shows who would be notified and sends nothing. “Send test alert” sends a TEST alert through the real notifiers. Stock state and cooldowns are not touched.")));
+  m.appendChild(el("div",{class:"mfoot"},
+    el("button",{class:"ghost",onclick:closeModal},"Close"),
+    el("button",{onclick:()=>run(true)},"Preview routes"),
+    el("button",{class:"primary",onclick:()=>run(false)},"Send test alert")));
+  $("#scrim").classList.add("show");
+  if(!prods.length||!addrs.length){out.textContent="Add at least one product and one address first.";return;}
+  run(true); // auto-preview the pre-selected watch
+}
+
+/* ---------- LIVE STOCK ---------- */
+async function loadStock(){
+  const body=$("#stockBody");
+  try{
+    const d=await api("/api/stock");
+    setDaemonPill(d.daemon); $("#stockSub").textContent = d.daemon.running?"updated each poll":"poller not running";
+    const rows=d.rows||[];
+    if(!rows.length){body.innerHTML="";body.appendChild(el("div",{class:"empty"},"No stock rows yet. The poller fills this in as it runs."));return;}
+    body.innerHTML="";
+    const tbl=el("table");
+    tbl.appendChild(el("thead",{},el("tr",{},
+      el("th",{},"Product"),el("th",{},"Location"),el("th",{class:"hide-sm"},"Pincode"),
+      el("th",{},"Stock"),el("th",{},"Qty"),el("th",{class:"hide-sm"},"Price"),el("th",{class:"hide-sm"},"Updated"))));
+    const tb=el("tbody");
+    rows.forEach(r=>{
+      const inStk=r.in_stock==="yes";
+      tb.appendChild(el("tr",{},
+        el("td",{},el("strong",{},r.product)),
+        el("td",{class:"small"},(r.location||"").replace(" "+r.pincode,"")),
+        el("td",{class:"mono small muted hide-sm"},r.pincode),
+        el("td",{},el("span",{class:"badge "+(inStk?"in":"out")}, inStk?"IN":"OUT")),
+        el("td",{class:"mono"}, r.qty),
+        el("td",{class:"mono small hide-sm"}, r.price?("₹"+r.price):"-"),
+        el("td",{class:"small muted hide-sm"}, r.updated_at||"")));
+    });
+    tbl.appendChild(tb);body.appendChild(tbl);
+  }catch(e){body.innerHTML="";body.appendChild(el("div",{class:"empty"},"Error: "+e.message));}
+}
+
+/* ---------- NOTIFIERS ---------- */
+function renderRecipients(){
+  const body=$("#recipientsBody");body.innerHTML="";
+  const rs=STATE.recipients||[];
+  if(!rs.length){body.appendChild(el("div",{class:"empty"},"No notifiers yet. Add one below."));}
+  else{
+    const tbl=el("table");tbl.appendChild(el("thead",{},el("tr",{},
+      el("th",{},"Name"),el("th",{},"Type"),el("th",{},"Destination"),
+      el("th",{class:"hide-sm"},"Used by"),el("th",{style:"width:150px"},""))));
+    const tb=el("tbody");
+    rs.forEach(r=>{
+      const dest=(r.summary||"").replace(r.name+": "+r.type,"").trim()||"-";
+      const used=(STATE.watches||[]).filter(w=>(w.recipients||[]).includes(r.name));
+      const lists=["default_alerts","system_alerts","qty_update_alerts"].filter(k=>(STATE[k]||[]).includes(r.name))
+        .map(k=>k.replace("_update","").replace("_alerts",""));
+      const usage=[used.length?used.length+" watch"+(used.length>1?"es":""):null,...lists].filter(Boolean).join(" · ")||"-";
+      tb.appendChild(el("tr",{},
+        el("td",{},el("strong",{},r.name),
+          (r.problems&&r.problems.length)?el("span",{class:"chip muted",style:"margin-left:6px",title:r.problems.join("; ")},"needs setup"):null),
+        el("td",{class:"small muted"},r.type),
+        el("td",{class:"small mono"},dest),
+        el("td",{class:"small muted hide-sm"},usage),
+        el("td",{},el("div",{class:"row-actions"},
+          el("button",{class:"sm ghost",title:"Send a test message to this notifier only",onclick:()=>testNotifier(r)},"Test"),
+          el("button",{class:"sm ghost",onclick:()=>startEditNotifier(r)},"Edit"),
+          el("button",{class:"danger",title:used.length?"used by "+used.length+" watch(es)":"delete",
+            onclick:()=>delRecipient(r,used)},"✕")))));
+    });
+    tbl.appendChild(tb);body.appendChild(tbl);
+  }
+  const db=$("#defaultsBody");db.innerHTML="";
+  [["default_alerts","Default","any watch with no notifiers of its own"],
+   ["system_alerts","System","Amul unreachable or the session cannot be started"],
+   ["qty_update_alerts","Quantity updates","stock count changes while in stock"]].forEach(([key,title,help])=>{
+    const chips=el("div",{style:"display:inline"});
+    (STATE[key]||[]).forEach(n=>chips.appendChild(el("span",{class:"chip"},n)));
+    if(!(STATE[key]||[]).length)chips.appendChild(el("span",{class:"chip muted"},"none"));
+    db.appendChild(el("div",{style:"display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"},
+      el("strong",{style:"min-width:130px"},title),chips,el("span",{class:"hint"},help),el("span",{class:"grow"}),
+      el("button",{class:"sm",onclick:()=>openNameList(key,title,help)},"Edit")));
+  });
+}
+
+// Settings each notifier type needs. `secret` fields hint at ${VAR} + the .env file.
+const NOTIFIER_FORMS={
+  email:[{key:"to",label:"Email addresses (comma separated)",list:true,ph:"you@example.com, family@example.com"}],
+  ntfy:[{key:"topic",label:"Topic (make it long and random: anyone who knows it can subscribe)",ph:"amul-watch-7f3k2q"},
+        {key:"server",label:"Server (optional)",ph:"https://ntfy.sh"}],
+  telegram:[{key:"bot_token",label:"Bot token",secret:"TELEGRAM_BOT_TOKEN"},{key:"chat_id",label:"Chat id",ph:"123456789"}],
+  discord:[{key:"url",label:"Webhook URL",secret:"DISCORD_WEBHOOK_URL"}],
+  slack_webhook:[{key:"url",label:"Incoming webhook URL",secret:"SLACK_WEBHOOK_URL"}],
+  slack:[{key:"token",label:"Bot token (xoxb-...)",secret:"SLACK_BOT_TOKEN"},
+         {key:"channel",label:"Channel id (C...) or user id (U...) for a DM",ph:"C0123456789"}],
+  webhook:[{key:"url",label:"URL to POST the alert JSON to",ph:"https://example.com/hook"}],
+  command:[{key:"command",label:"Command (the alert arrives as AMUL_* env vars)",ph:"/usr/local/bin/my-notify --urgent"}],
+  desktop:[{key:"sticky",label:"Stay on screen until dismissed",checkbox:true}],
+  browser:[],
+};
+let nbState={type:"ntfy",editing:null};
+function slugify(s){return String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+
+function startEditNotifier(r){
+  nbState={type:r.type,editing:r.name};
+  renderNotifierBuilder();
+  const head=$("#notifierBuilderHead"); if(head) head.scrollIntoView({behavior:"smooth",block:"center"});
+}
+
+function renderNotifierBuilder(){
+  const host=$("#notifierBuilder"); if(!host) return;
+  const editing=nbState.editing;
+  const current=editing?(STATE.recipients||[]).find(r=>r.name===editing):null;
+  const cfg=(current&&current.type===nbState.type)?(current.config||{}):{};
+  const head=$("#notifierBuilderHead");
+  if(head) head.innerHTML=editing
+    ? '<h2>Edit “'+editing+'”</h2><span class="sub">the name is how routes refer to it, so it cannot change</span>'
+    : '<h2>Add a notifier</h2><span class="sub">then tick it on any watch</span>';
+  host.innerHTML="";
+  const types=STATE.notifier_types||[];
+  const picker=el("div",{style:"display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"});
+  types.forEach(t=>picker.appendChild(el("button",{
+    class:nbState.type===t.type?"primary sm":"sm ghost",title:t.description,
+    onclick:()=>{nbState={type:t.type,editing:nbState.editing};renderNotifierBuilder();}},t.type)));
+  host.appendChild(picker);
+  const kind=types.find(t=>t.type===nbState.type)||{description:""};
+  host.appendChild(el("div",{class:"hint",style:"max-width:620px;margin-bottom:14px"},kind.description));
+
+  const name=el("input",{placeholder:"name e.g. mum-telegram",...(editing?{value:editing,disabled:"disabled"}:{})});
+  host.appendChild(el("label",{class:"field",style:"max-width:620px;margin-bottom:14px"},"Name",name));
+  const inputs={};
+  const fields=el("div",{style:"display:flex;flex-direction:column;gap:14px;max-width:620px"});
+  (NOTIFIER_FORMS[nbState.type]||[]).forEach(f=>{
+    let input;
+    if(f.checkbox){
+      input=el("input",{type:"checkbox",style:"width:auto",...(cfg[f.key]?{checked:"checked"}:{})});
+      fields.appendChild(el("label",{class:"field",style:"flex-direction:row;gap:8px;align-items:center"},input,f.label));
+    } else {
+      const val=cfg[f.key]; const shown=Array.isArray(val)?val.join(", "):(val??"");
+      input=el("input",{placeholder:f.secret?"${"+f.secret+"}":(f.ph||""),value:shown});
+      fields.appendChild(el("label",{class:"field"},f.label,input,
+        f.secret?el("span",{class:"hint"},"Tip: type ${"+f.secret+"} here and put "+f.secret+"=… in the .env file, so the secret stays out of the YAML."):null));
+    }
+    inputs[f.key]={f,input};
+  });
+  if(!(NOTIFIER_FORMS[nbState.type]||[]).length) fields.appendChild(el("div",{class:"hint"},"Nothing to configure, just give it a name."));
+  if(nbState.type==="email") fields.appendChild(el("div",{class:"hint"},"The SMTP server is set once under `email:` in notifications.yaml."));
+  host.appendChild(fields);
+  host.appendChild(el("div",{style:"margin-top:18px;display:flex;gap:8px;align-items:center"},
+    el("button",{class:"primary",onclick:async()=>{
+      const nm=editing||slugify(name.value);
+      if(!nm){toast("Name required",true);return;}
+      if(!editing&&(STATE.recipients||[]).some(r=>r.name===nm)){toast("A notifier named "+nm+" already exists",true);return;}
+      const config={};
+      for(const [k,{f,input}] of Object.entries(inputs)){
+        if(f.checkbox){ if(input.checked) config[k]=true; continue; }
+        const v=input.value.trim();
+        if(!v) continue;
+        config[k]=f.list?v.split(",").map(x=>x.trim()).filter(Boolean):v;
+      }
+      try{
+        await api("/api/notifier",{name:nm,type:nbState.type,config});
+        toast((editing?"Updated ":"Added ")+nm);
+        nbState={type:nbState.type,editing:null};
+        await reload(false); renderNotifierBuilder();
+      }catch(e){toast(e.message,true);}
+    }},editing?"Save changes":"Add notifier"),
+    editing? el("button",{class:"ghost",onclick:()=>{nbState={type:"ntfy",editing:null};renderNotifierBuilder();}},"Cancel") : null));
+}
+
+async function testNotifier(r){
+  try{
+    const d=await api("/api/notifier/test",{name:r.name});
+    const res=(d.results||{})[r.name]||"?";
+    toast(r.name+": "+res, res!=="ok");
+  }catch(e){toast(r.name+": "+e.message,true);}
+}
+
+async function delRecipient(r,used){
+  const warn=(used&&used.length)
+    ? "\n\nStill used by:\n"+used.map(w=>"  · "+w.product_label+" @ "+w.pincode).join("\n")
+      +"\n\nThose watches fall back to the default notifiers."
+    : "";
+  if(!confirm("Delete notifier "+r.name+"?"+warn))return;
+  try{await api("/api/notifier/delete",{name:r.name});toast("Deleted "+r.name);
+    if(nbState.editing===r.name){nbState={type:"ntfy",editing:null};}
+    await reload(false);}catch(e){toast(e.message,true);}}
+function openNameList(key,title,help){
+  const picker=recipientPicker(STATE[key]||[]);
+  showModal(title+" notifiers",[el("div",{class:"field"},help,picker)],
+   async()=>{const names=[...picker.querySelectorAll("input:checked")].map(c=>c.value);
+     try{await api("/api/name-list",{key,names});toast("Saved");await reload(false);return true;}catch(e){toast(e.message,true);return false;}});
+}
+
+/* ---------- LISTS ---------- */
+function renderLists(){
+  const ab=$("#addressesBody");ab.innerHTML="";
+  const tbl=el("table");tbl.appendChild(el("thead",{},el("tr",{},
+    el("th",{},"Label"),el("th",{},"Pincode"),el("th",{class:"hide-sm"},"Watches"),el("th",{style:"width:52px"},"On"),el("th",{style:"width:90px"},""))));
+  const tb=el("tbody");
+  (STATE.addresses||[]).forEach(a=>{
+    const nw=(STATE.watches||[]).filter(w=>w.pincode===a.pincode).length;
+    tb.appendChild(el("tr",{},
+      el("td",{},el("strong",{},a.label)),
+      el("td",{class:"mono"},a.pincode),
+      el("td",{class:"small muted hide-sm"}, nw+" product"+(nw===1?"":"s")),
+      el("td",{},el("button",{class:"toggle"+(a.enabled?" on":""),onclick:()=>toggleAddress(a)})),
+      el("td",{},el("div",{class:"row-actions"},
+        el("button",{class:"sm ghost",onclick:()=>openAddress(a)},"Edit"),
+        el("button",{class:"danger",onclick:()=>delAddress(a)},"✕")))));
+  });
+  tbl.appendChild(tb);ab.appendChild((STATE.addresses||[]).length?tbl:el("div",{class:"empty"},"No addresses."));
+  const pb=$("#productsBody");pb.innerHTML="";
+  const pt=el("table");pt.appendChild(el("thead",{},el("tr",{},
+    el("th",{},"Label"),el("th",{},"Shorthand"),el("th",{class:"hide-sm"},"Alias"),el("th",{style:"width:60px"},""))));
+  const ptb=el("tbody");
+  (STATE.products||[]).forEach(p=>ptb.appendChild(el("tr",{},
+    el("td",{},el("strong",{},p.label)),
+    el("td",{class:"mono small"},p.short),
+    el("td",{class:"mono small muted hide-sm"},p.alias),
+    el("td",{},el("button",{class:"sm ghost",onclick:()=>openProduct(p)},"Edit")))));
+  pt.appendChild(ptb);pb.appendChild((STATE.products||[]).length?pt:el("div",{class:"empty"},"No products."));
+}
+async function toggleAddress(a){try{const r=await api("/api/address",{pincode:a.pincode,enabled:!a.enabled});
+  toast(!a.enabled?"Enabled":"Disabled");await reload(false);}catch(e){toast(e.message,true);}}
+function openAddress(a){
+  const isNew=!a;
+  const pin=el("input",{value:a?a.pincode:"",maxlength:"6",inputmode:"numeric",placeholder:"560001",...(a?{disabled:"disabled"}:{})});
+  const label=el("input",{value:a?a.label:"",placeholder:"Mum's place (private, UI only)"});
+  const short=el("input",{value:a?a.short:"",placeholder:"Bangalore (public, shown in alerts)"});
+  showModal(isNew?"Add address":"Edit address",[
+    el("label",{class:"field"},"Pincode",pin),
+    el("label",{class:"field"},"Label",label),
+    el("label",{class:"field"},"Short label",short),
+  ], async()=>{
+    const payload={pincode:(a?a.pincode:pin.value.trim()),label:label.value.trim(),short:short.value.trim()};
+    if(isNew)payload.enabled=true;
+    if(!/^\d{6}$/.test(payload.pincode)){toast("Pincode must be 6 digits",true);return false;}
+    try{const r=await api("/api/address",payload);toast("Saved");await reload(false);return true;}catch(e){toast(e.message,true);return false;}
+  });
+}
+async function delAddress(a){if(!confirm("Delete address "+a.label+" ("+a.pincode+") and its watches?"))return;
+  try{const r=await api("/api/address/delete",{pincode:a.pincode});toast("Deleted");await reload(false);}catch(e){toast(e.message,true);}}
+function openProduct(p){
+  const isNew=!p;
+  const alias=el("input",{value:p?p.alias:"",placeholder:"paste the product URL from shop.amul.com",...(p?{disabled:"disabled"}:{})});
+  const label=el("input",{value:p?p.label:"",placeholder:"Rose Lassi"});
+  const short=el("input",{value:p?p.short:"",placeholder:"rose-lassi (used in routes and the CLI)"});
+  const enq=el("input",{value:p?p.enquiry_name:"",placeholder:"exact product name, for register-enquiries"});
+  showModal(isNew?"Add product":"Edit product",[
+    el("label",{class:"field"},"Product URL or alias",alias),
+    el("label",{class:"field"},"Label",label),
+    el("label",{class:"field"},"Short name",short),
+    el("label",{class:"field"},"Enquiry name (optional)",enq),
+  ], async()=>{
+    const payload={alias:(p?p.alias:alias.value.trim()),label:label.value.trim(),short:short.value.trim(),enquiry_name:enq.value.trim()};
+    if(!payload.alias){toast("Alias required",true);return false;}
+    try{const r=await api("/api/product",payload);toast("Saved");await reload(false);return true;}catch(e){toast(e.message,true);return false;}
+  });
+}
+
+/* ---------- CONTROLS ---------- */
+function renderControls(){
+  const d=STATE.daemon||{};
+  $("#ctrlStatus").textContent = d.paused?("paused: "+((d.pause_info||{}).reason||"")):d.running?("polling · last poll "+d.heartbeat_age_seconds+"s ago"):"not polling (is `amul-watch serve` running?)";
+  const f=STATE.config_paths||{};
+  $("#filesBody").innerHTML="config: "+(f.config||"")+"<br>notifications: "+(f.notifications||"");
+}
+/* ---------- LOG VIEWER ---------- */
+const LOG_PAGE=200;
+let logState={file:"daemon",start:0,end:0,lines:[],following:false,timer:null,cmd:"",loaded:false};
+
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch(e){
+    // http:// is not a secure context, so navigator.clipboard is often unavailable.
+    const ta=el("textarea",{}); ta.value=text;
+    ta.style.cssText="position:fixed;top:-1000px";
+    document.body.appendChild(ta); ta.select();
+    let ok=false; try{ ok=document.execCommand("copy"); }catch(e2){}
+    document.body.removeChild(ta); return ok;
+  }
+}
+function logRender(){
+  const box=$("#logBox");
+  box.textContent=logState.lines.length?logState.lines.join("\n"):"(log is empty)";
+  $("#logCount").textContent=logState.lines.length+" lines shown"+
+    (logState.start>0?" · older available":" · from the start of the file");
+  $("#logCmd").textContent=logState.cmd||"";
+  const btn=$("#logOlder"); if(btn) btn.disabled=!logState.start;
+}
+function logScrollBottom(){const b=$("#logBox");b.scrollTop=b.scrollHeight;}
+function logApplyMeta(d){
+  logState.cmd=d.tail_cmd||"";
+  if(d.files && !$("#logFile").options.length){
+    Object.values(d.files).forEach(f=>$("#logFile").appendChild(
+      el("option",{value:f.id,...(f.id===logState.file?{selected:"selected"}:{})},
+        f.id+(f.exists?"":" (missing)")+" · "+f.label)));
+  }
+}
+async function logLoadTail(){
+  try{
+    const d=await api(`/api/logs?file=${encodeURIComponent(logState.file)}&limit=${LOG_PAGE}`);
+    logApplyMeta(d);
+    logState.lines=d.lines; logState.start=d.start; logState.end=d.end; logState.loaded=true;
+    logRender(); logScrollBottom();
+  }catch(e){$("#logBox").textContent="Could not read log: "+e.message;}
+}
+async function logLoadOlder(){
+  if(!logState.start) return;
+  const box=$("#logBox"), before=box.scrollHeight;
+  try{
+    const d=await api(`/api/logs?file=${encodeURIComponent(logState.file)}&limit=${LOG_PAGE}&before=${logState.start}`);
+    if(!d.lines.length){logState.start=0;logRender();return;}
+    logState.lines=d.lines.concat(logState.lines); logState.start=d.start;
+    logRender();
+    box.scrollTop=box.scrollHeight-before;   // keep the reader where they were
+  }catch(e){toast(e.message,true);}
+}
+async function logPoll(){
+  try{
+    const d=await api(`/api/logs?file=${encodeURIComponent(logState.file)}&after=${logState.end}`);
+    if(d.rotated){await logLoadTail();return;}
+    logState.end=d.end;
+    if(!d.lines.length) return;
+    logState.lines=logState.lines.concat(d.lines);
+    if(logState.lines.length>2000){   // cap so a long follow cannot grow forever
+      const enc=new TextEncoder();
+      const drop=logState.lines.slice(0,logState.lines.length-2000);
+      logState.start+=drop.reduce((n,l)=>n+enc.encode(l).length+1,0);  // keep "load older" honest
+      logState.lines=logState.lines.slice(-2000);
+    }
+    logRender(); logScrollBottom();
+  }catch(e){ logSetFollow(false); toast("Follow stopped: "+e.message,true); }
+}
+function logSetFollow(on){
+  logState.following=on;
+  const b=$("#logFollow");
+  if(b){ b.textContent=on?"■ Following":"▶ Follow"; b.className=on?"sm primary":"sm"; }
+  clearInterval(logState.timer); logState.timer=null;
+  if(on){ logState.timer=setInterval(logPoll,3000); logPoll(); }
+}
+function logInit(){
+  if(!logState.loaded) logLoadTail();
+}
+$("#logFile").addEventListener("change",e=>{
+  logState.file=e.target.value; logState.lines=[]; logState.loaded=false;
+  logLoadTail().then(()=>{ if(logState.following) logSetFollow(true); });
+});
+$("#logFollow").addEventListener("click",()=>logSetFollow(!logState.following));
+$("#logOlder").addEventListener("click",logLoadOlder);
+$("#logNewest").addEventListener("click",()=>logLoadTail());
+$("#logCopy").addEventListener("click",async()=>{
+  if(!logState.cmd){toast("No log path yet",true);return;}
+  const ok=await copyText(logState.cmd);
+  toast(ok?"Copied: "+logState.cmd:"Copy failed, select the text manually",!ok);
+});
+
+async function control(action,reason){
+  toast("Working…");
+  try{const r=await api("/api/control",{action,reason});
+    toast(action[0].toUpperCase()+action.slice(1)+" done");await reload(false);}
+  catch(e){toast(e.message,true);}
+}
+
+/* ---------- modal + tabs + reload ---------- */
+function showModal(title, fields, onSave){
+  const m=$("#modal");m.innerHTML="";
+  const foot=el("div",{class:"mfoot"},
+    el("button",{class:"ghost",onclick:closeModal},"Cancel"),
+    el("button",{class:"primary",onclick:async()=>{const ok=await onSave();if(ok!==false)closeModal();}},"Save"));
+  m.appendChild(el("div",{class:"mhead"},title));
+  m.appendChild(el("div",{class:"mbody"},...fields));
+  m.appendChild(foot);
+  $("#scrim").classList.add("show");
+}
+function closeModal(){$("#scrim").classList.remove("show");}
+$("#scrim").addEventListener("click",e=>{if(e.target===$("#scrim"))closeModal();});
+
+/* ---------- NOTIFICATIONS TIMELINE ---------- */
+let notifState={offset:0,limit:25,total:0,items:[]};
+function fmtTime(ts){ try{ return new Date(ts*1000).toLocaleString(undefined,{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}); }catch(e){ return String(ts); } }
+async function loadNotifs(reset=true){
+  const body=$("#notifsBody");
+  if(reset){ notifState={offset:0,limit:25,total:0,items:[]}; body.innerHTML='<div class="empty">Loading…</div>'; }
+  try{
+    const d=await api(`/api/notifications?offset=${notifState.offset}&limit=${notifState.limit}`);
+    notifState.total=d.total; notifState.items=notifState.items.concat(d.items||[]); notifState.offset+=(d.items||[]).length;
+    renderNotifs();
+  }catch(e){ body.innerHTML=""; body.appendChild(el("div",{class:"empty"},"Error: "+e.message)); }
+}
+function renderNotifs(){
+  const body=$("#notifsBody"); body.innerHTML="";
+  if(!notifState.items.length){ body.appendChild(el("div",{class:"empty"},"No notifications recorded yet. Stock alerts will appear here as they’re sent.")); return; }
+  const list=el("div",{});
+  notifState.items.forEach(n=>{
+    const test=n.kind==="test";
+    const chips=el("div",{});
+    const results=n.results||{};
+    (n.notifiers||[]).forEach(c=>{const r=results[c]||"";
+      chips.appendChild(el("span",{class:"chip"+(r&&r!=="ok"?" muted":""),title:r},c+(r&&r!=="ok"?" ✕":"")));});
+    if(!(n.notifiers||[]).length) chips.appendChild(el("span",{class:"chip muted"},"nobody"));
+    const pins=(n.pincodes||[]).join(", ")||"-";
+    const detail=el("div",{class:"notif-detail"},
+      el("div",{class:"small"}, "Pincodes: "+pins),
+      (n.qty!=null? el("div",{class:"small"}, "Qty: "+n.qty+(n.price!=null?"  ·  ₹"+n.price:"")) : null),
+      el("div",{class:"small",style:"margin-top:2px"}, "Notified:"),
+      chips,
+      (Object.values(results).some(r=>r!=="ok")? el("div",{class:"small muted"}, Object.entries(results).filter(([,r])=>r!=="ok").map(([k,r])=>k+": "+r).join(" · ")) : null),
+      el("div",{class:"small muted"}, "Source: "+(n.source||"?")),
+      (n.url? el("div",{class:"small"}, el("a",{href:n.url,target:"_blank",rel:"noopener"}, "open product ↗")) : null),
+    );
+    const item=el("div",{class:"notif"},
+      el("div",{class:"notif-head", onclick:function(){ this.parentNode.classList.toggle("open"); }},
+        el("span",{class:"caret"},"▶"),
+        el("span",{class:"badge "+(test?"test":"in")}, test?"TEST":"IN"),
+        el("strong",{}, n.product||n.alias||"?"),
+        el("span",{class:"muted small"}, " · "+pins),
+        el("span",{class:"grow"}),
+        el("span",{class:"muted small mono"}, fmtTime(n.ts))),
+      detail);
+    list.appendChild(item);
+  });
+  body.appendChild(list);
+  const remaining=notifState.total-notifState.offset;
+  if(remaining>0){
+    body.appendChild(el("div",{style:"text-align:center;margin-top:10px"},
+      el("button",{class:"sm",onclick:()=>loadNotifs(false)}, `Load ${Math.min(remaining,notifState.limit)} more (${remaining} older)`)));
+  }
+  body.appendChild(el("div",{class:"hint",style:"text-align:center;margin-top:8px"}, `${notifState.items.length} of ${notifState.total} shown`));
+}
+
+/* ---------- TABS + URL ROUTING ---------- */
+const TAB_SLUG={watches:"watches",stock:"live-stock",notifiers:"notifiers",lists:"lists",notifs:"notifications",controls:"controls"};
+const SLUG_TAB=Object.fromEntries(Object.entries(TAB_SLUG).map(([k,v])=>[v,k]));
+function switchTab(name, push=true){
+  if(!TAB_SLUG[name]) name="watches";
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
+  document.querySelectorAll("main section[data-panel]").forEach(s=>s.hidden=s.dataset.panel!==name);
+  if(push){ const slug="/"+TAB_SLUG[name]; if(location.pathname!==slug){ try{ history.pushState({tab:name},"",slug); }catch(e){} } }
+  if(name==="stock")loadStock();
+  if(name==="notifs")loadNotifs(true);
+  if(name==="controls")logInit(); else if(logState.following)logSetFollow(false);
+}
+function tabFromPath(){ const slug=(location.pathname||"/").replace(/^\/+|\/+$/g,""); return SLUG_TAB[slug]||"watches"; }
+document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
+window.addEventListener("popstate",()=>switchTab(tabFromPath(), false));
+
+function renderAll(){
+  setDaemonPill(STATE.daemon||{});
+  renderWatches();renderRecipients();renderNotifierBuilder();renderLists();renderControls();
+}
+async function reload(spin=true){
+  try{STATE=await api("/api/state");renderAll();}
+  catch(e){toast("Load failed: "+e.message,true);}
+}
+
+$("#btnRefresh").addEventListener("click",()=>reload());
+$("#btnAddWatch").addEventListener("click",()=>openWatch(null));
+$("#chkShowDisabled").addEventListener("change",e=>{ showDisabled=e.target.checked; renderWatches(); });
+$("#btnFillDisabled").addEventListener("click",async()=>{
+  if(!confirm("Add every address × product combo that isn't already a watch, as a disabled watch you can toggle on later?"))return;
+  try{
+    const r=await api("/api/watch/fill-disabled",{});
+    toast(r.added?`Added ${r.added} disabled watch(es) across ${r.pins} address(es)`:"Nothing to add: all combos already exist");
+    if(r.added && !showDisabled){ showDisabled=true; $("#chkShowDisabled").checked=true; }
+    await reload(false);
+  }catch(e){ toast(e.message,true); }
+});
+$("#btnSimulate").addEventListener("click",()=>{
+  const ws=STATE.watches||[];
+  const pick=ws.find(w=>w.enabled)||ws[0]||null;
+  openSimulate(pick);
+});
+$("#btnAddAddress").addEventListener("click",()=>openAddress(null));
+$("#btnAddProduct").addEventListener("click",()=>openProduct(null));
+$("#btnStockRefresh").addEventListener("click",loadStock);
+$("#btnStockLive").addEventListener("click",async()=>{
+  const btn=$("#btnStockLive"); const old=btn.textContent;
+  btn.disabled=true; btn.textContent="⟳ Fetching live…";
+  toast("Fetching live from Amul (up to a minute)");
+  try{
+    const r=await api("/api/poll",{});
+    const s=r.summary||{};
+    if(s.session_expired){ toast("Amul returned empty data. The session is being restarted, try again in a minute.",true); }
+    else { toast(`Live fetch done: ${s.checks||0} checked, ${s.alerts||0} alert(s)`); }
+    await loadStock();
+  }catch(e){ toast("Live fetch failed: "+e.message,true); }
+  finally{ btn.disabled=false; btn.textContent=old; }
+});
+$("#cPause").addEventListener("click",()=>{const r=prompt("Pause reason (optional):","");if(r!==null)control("pause",r);});
+$("#cResume").addEventListener("click",()=>control("resume"));
+$("#cNormalize").addEventListener("click",()=>{if(confirm("Give every enabled pincode an explicit per-product watch set from its current routes?"))control2("normalize");});
+async function control2(kind){try{const r=await api("/api/"+kind,{});toast("Done");await reload(false);}catch(e){toast(e.message,true);}}
+
+$("#btnNotifRefresh").addEventListener("click",()=>loadNotifs(true));
+
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+setInterval(()=>{const active=document.querySelector('main section[data-panel="stock"]');if(active&&!active.hidden)loadStock();},12000);
+setInterval(async()=>{try{const d=await api("/api/stock");setDaemonPill(d.daemon);}catch(e){}},15000);
+switchTab(tabFromPath(), false);   // open the tab named in the URL (e.g. /live-stock)
+reload();
+</script>
+</body>
+</html>

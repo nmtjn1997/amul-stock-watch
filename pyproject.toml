@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amul-stock-watch"
+version = "1.0.0"
+description = "Watch shop.amul.com stock per pincode and alert people (email, phone push, Telegram, Slack, Discord, desktop) the moment a product is back."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Namit Jain" }]
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0",
+  "ruamel.yaml>=0.18",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Environment :: Web Environment",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/nmtjn1997/amul-stock-watch"
+
+[project.scripts]
+amul-watch = "amul_watch.__main__:main"
+
+[tool.setuptools]
+packages = ["amul_watch"]
+
+[tool.setuptools.package-data]
+amul_watch = ["web/*.html", "examples/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,52 @@
+# amul-watch config: WHAT to watch and WHERE.
+# Who gets alerted lives in notifications.yaml. Both files can be edited here or in
+# the web UI (amul-watch serve). Changes apply on the next poll, no restart needed.
+
+# Pincodes to check. A pincode is one delivery address; stock differs by region.
+#   label   private name, shown only in the UI (e.g. "Mum's place")
+#   short   public name used in alert messages (e.g. "Bangalore")
+#   products   optional allowlist of product short names for THIS pincode.
+#              Leave it out to watch every enabled product here.
+pincodes:
+  - pincode: "110001"
+    label: "Example address, replace me"
+    short: New Delhi
+    enabled: true
+    products:
+      - rose-lassi
+
+# Products to watch. `alias` is the last part of the product URL:
+#   https://shop.amul.com/en/product/<alias>
+# `short` is the name used in alert routes (notifications.yaml) and the CLI.
+watchlist:
+  - alias: amul-high-protein-rose-lassi-200-ml-or-pack-of-30
+    short: rose-lassi
+    label: "High Protein Rose Lassi"
+    enabled: true
+  - alias: amul-high-protein-plain-lassi-200-ml-or-pack-of-30
+    short: plain-lassi
+    label: "High Protein Plain Lassi"
+    enabled: true
+  - alias: amul-high-protein-buttermilk-200-ml-or-pack-of-30
+    short: buttermilk
+    label: "High Protein Buttermilk"
+    enabled: true
+
+# Polling. Requests are spread evenly across the interval instead of fired in a burst,
+# which is gentler on the shop and less likely to be rate limited.
+poll_interval_seconds: 60
+poll_jitter_seconds: 10
+poll_spread: true
+
+# Optional: poll some products more often than others (weight 2 = twice per cycle).
+# poll_priority:
+#   amul-high-protein-rose-lassi-200-ml-or-pack-of-30: 2
+
+# Optional: this pincode is polled first each cycle.
+# priority_pincode: "110001"
+
+# Web UI port (http://127.0.0.1:8847)
+ui_port: 8847
+
+# Only for `amul-watch register-enquiries` (Amul's own notify-me form needs a phone).
+# phone: "+91XXXXXXXXXX"

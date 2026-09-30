@@ -1,0 +1,24 @@
+# docker compose up -d        then open http://127.0.0.1:8847
+# Config, secrets and history live in the `amul-data` volume. Edit them in the web UI,
+# or with: docker compose exec amul-watch amul-watch paths
+services:
+  amul-watch:
+    build: .
+    image: amul-stock-watch:latest
+    container_name: amul-watch
+    restart: unless-stopped
+    ports:
+      # Localhost only by default. To reach it from other devices use "8847:8847"
+      # AND set AMUL_WATCH_UI_PASSWORD below.
+      - "127.0.0.1:8847:8847"
+    volumes:
+      - amul-data:/data
+      # Behind a corporate TLS proxy, give curl the proxy's CA bundle:
+      # - ./corp-ca.pem:/etc/ssl/certs/corp-ca.pem:ro
+    environment:
+      TZ: Asia/Kolkata
+      # AMUL_WATCH_UI_PASSWORD: change-me
+      # CURL_CA_BUNDLE: /etc/ssl/certs/corp-ca.pem
+
+volumes:
+  amul-data:

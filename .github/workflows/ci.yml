@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          export AMUL_WATCH_HOME="$RUNNER_TEMP/amul-home"
+          amul-watch init
+          amul-watch alerts
+          amul-watch simulate stock --pincode 110001 --dry-run
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t amul-stock-watch .
+      - run: docker run --rm amul-stock-watch amul-watch --help
