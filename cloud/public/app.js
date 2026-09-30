@@ -383,7 +383,7 @@ function channelsCard() {
     finally { busy(btn, false); }
   } }, "Send a test to all");
   return h("div", { class: "card" }, h("h2", {}, "Where alerts go"),
-    h("div", { class: "list" }, rows.map((r) => h("div", { class: "li" },
+    h("div", { class: "list" }, rows.map((r) => h("div", { class: "li chan" },
       h("div", { class: "main" }, h("div", {}, r.label), r.result),
       h("span", { class: r.on ? "good small" : "muted small" }, r.state)))),
     h("div", { class: "row" }, btn));
@@ -411,7 +411,7 @@ function notifySetup(compact) {
       }
     } else if (onHere) {
       parts.push(h("div", { class: "ok-line" }, `Notifications are on for this device (${deviceLabel()}).`),
-        h("div", { class: "row" }, testBtn, h("button", { type: "button", class: "ghost", onclick: async () => { await turnOffPush(); await loadMe(); draw(); toast("Turned off on this device"); } }, "Turn off here")));
+        h("div", { class: "row" }, compact ? testBtn : null, h("button", { type: "button", class: "ghost", onclick: async () => { await turnOffPush(); await loadMe(); draw(); toast("Turned off on this device"); } }, "Turn off here")));
     } else {
       const on = h("button", { type: "button", class: "primary wide", onclick: async () => {
         status.className = "hint"; status.textContent = "";
@@ -420,10 +420,10 @@ function notifySetup(compact) {
         catch (x) { status.className = "err"; status.textContent = x.message; }
         finally { busy(on, false); }
       } }, "Turn on notifications on this device");
-      parts.push(on, status);
+      parts.push(Notification.permission === "denied" ? null : on, status);
       if (Notification.permission === "denied") {
         status.className = "err";
-        status.textContent = "Notifications are blocked for this site. Allow them in your browser's site settings first.";
+        status.textContent = "Notifications are blocked for this site in this browser. Allow them in the browser's site settings (the icon left of the address), then reload this page.";
       }
     }
     const others = ME.devices.filter((d) => !(here && here.endpoint.endsWith(d.endpoint_hash)));
@@ -431,7 +431,7 @@ function notifySetup(compact) {
       parts.push(h("div", { class: "list devices" }, others.map((d) => h("div", { class: "li" },
         h("div", { class: "main" }, h("div", {}, d.label), h("div", { class: "muted small" }, `added ${ago(d.created_at)}`)),
         h("button", { type: "button", class: "ghost", onclick: async () => { await api("/api/push/remove", { id: d.id }); await loadMe(); draw(); toast("Removed"); } }, "Remove")))));
-      if (!onHere) parts.push(h("div", { class: "row" }, testBtn));
+      if (!onHere && compact) parts.push(h("div", { class: "row" }, testBtn));
     }
     if (!compact || !isPhone()) {
       parts.push(h("details", { class: "more" }, h("summary", {}, "Open this on your phone"),
@@ -655,9 +655,11 @@ async function settingsView() {
   );
   try {
     const r = await api("/api/history");
-    historyBox.replaceChildren(...(r.items.length ? r.items.map((i) => h("div", { class: "li" },
+    const row = (i) => h("div", { class: "li" },
       h("div", { class: "main" }, h("div", {}, i.kind === "test" ? "Test message" : `${i.product} at ${i.pincodes}`),
-        h("div", { class: "muted small" }, `${ago(i.ts)}: ${i.result}`)))) : [h("div", { class: "muted small" }, "Nothing sent yet.")]));
+        h("div", { class: "muted small" }, `${ago(i.ts)}: ${i.result}`)));
+    const more = r.items.length > 5 ? h("button", { type: "button", class: "ghost", onclick: () => { historyBox.replaceChildren(...r.items.map(row)); } }, `Show all ${r.items.length}`) : null;
+    historyBox.replaceChildren(...(r.items.length ? [...r.items.slice(0, 5).map(row), more].filter(Boolean) : [h("div", { class: "muted small" }, "Nothing sent yet.")]));
   } catch { historyBox.replaceChildren(h("div", { class: "muted small" }, "Could not load.")); }
 }
 

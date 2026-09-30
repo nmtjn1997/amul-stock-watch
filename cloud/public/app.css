@@ -110,7 +110,7 @@ ol.how li { margin-bottom: 10px; }
 .pill { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--panel2); color: var(--muted); }
 .pill.admin { background: color-mix(in srgb, var(--accent) 18%, var(--panel)); color: var(--accent); }
 .pill.off { background: var(--badbg); color: var(--bad); }
-details.more summary { cursor: pointer; font-weight: 650; }
+details.more summary { cursor: pointer; font-weight: 650; min-height: 44px; display: flex; align-items: center; gap: 6px; }
 
 /* sheet (bottom on phones, centred on desktop) */
 .sheet-scrim { position: fixed; inset: 0; background: rgba(10,12,16,.55); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
@@ -171,3 +171,10 @@ input[aria-invalid="true"] { border-color: var(--bad); }
 .loading { text-align: center; margin-top: 40px; }
 .sheet-foot { position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom)); background: var(--panel); padding: 10px 0 calc(18px + env(safe-area-inset-bottom)); margin-bottom: calc(-18px - env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); margin-top: 12px; }
 .sheet-foot .err:empty { display: none; }
+.li.chan { flex-wrap: nowrap; }
+.li.chan .main { flex: 1 1 auto; }
+.li.chan > span { white-space: nowrap; margin-left: auto; }
+details.more summary { list-style: none; }
+details.more summary::-webkit-details-marker { display: none; }
+details.more summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
+details.more[open] summary::before { transform: rotate(90deg); }
