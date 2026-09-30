@@ -82,6 +82,19 @@ const present = (nodes) => nodes.flat().filter((n) => n !== null && n !== undefi
 const show = (...nodes) => { $("#view").replaceChildren(...present(nodes)); window.scrollTo(0, 0); };
 const go = (hash) => { if (location.hash === hash) render(); else location.hash = hash; };
 
+// Ignores taps while the previous one is still running, and shows any error.
+const once = (fn) => {
+  let running = false;
+  return async (e) => {
+    if (running) return;
+    running = true;
+    const b = e && e.currentTarget;
+    if (b) b.setAttribute("aria-busy", "true");
+    try { await fn(e); } catch (x) { toast(x.message, true); }
+    finally { running = false; if (b) b.removeAttribute("aria-busy"); }
+  };
+};
+
 function busy(btn, on, label) {
   if (!btn) return;
   if (on) { btn._label = btn.textContent; btn.textContent = label || "Working..."; btn.disabled = true; }
@@ -421,7 +434,7 @@ function notifySetup(compact) {
       }
     } else if (onHere) {
       parts.push(h("div", { class: "ok-line" }, `Notifications are on for this device (${deviceLabel()}).`),
-        h("div", { class: "row" }, compact ? testBtn : null, h("button", { type: "button", class: "ghost", onclick: async () => { await turnOffPush(); await loadMe(); draw(); toast("Turned off on this device"); } }, "Turn off here")));
+        h("div", { class: "row" }, compact ? testBtn : null, h("button", { type: "button", class: "ghost", onclick: once(async () => { await turnOffPush(); await loadMe(); draw(); toast("Turned off on this device"); }) }, "Turn off here")));
     } else {
       const on = h("button", { type: "button", class: "primary wide", onclick: async () => {
         status.className = "hint"; status.textContent = "";
@@ -440,7 +453,7 @@ function notifySetup(compact) {
     if (others.length) {
       parts.push(h("div", { class: "list devices" }, others.map((d) => h("div", { class: "li" },
         h("div", { class: "main" }, h("div", {}, d.label), h("div", { class: "muted small" }, `added ${ago(d.created_at)}`)),
-        h("button", { type: "button", class: "ghost", onclick: async () => { await api("/api/push/remove", { id: d.id }); await loadMe(); draw(); toast("Removed"); } }, "Remove")))));
+        h("button", { type: "button", class: "ghost", onclick: once(async () => { await api("/api/push/remove", { id: d.id }); await loadMe(); draw(); toast("Removed"); }) }, "Remove")))));
       if (!onHere && compact) parts.push(h("div", { class: "row" }, testBtn));
     }
     if (!compact || !isPhone()) {
@@ -476,7 +489,7 @@ function telegramSetup() {
   if (u.telegram) {
     return h("div", {},
       h("p", { class: "small" }, "Connected. Alerts also go to your Telegram chat with our bot."),
-      h("button", { type: "button", class: "ghost", onclick: async () => { await api("/api/telegram/unlink", {}); await refresh(); toast("Telegram disconnected"); } }, "Disconnect"));
+      h("button", { type: "button", class: "ghost", onclick: once(async () => { await api("/api/telegram/unlink", {}); await refresh(); toast("Telegram disconnected"); }) }, "Disconnect"));
   }
   return h("div", {},
     h("p", { class: "small muted" }, "Free, works on any phone with the Telegram app. One tap to link, nothing to copy."),
@@ -531,16 +544,16 @@ function alertsView() {
   }
   for (const w of ws) {
     const sw = h("button", { class: "switch", role: "switch", "aria-checked": String(!!w.enabled), "aria-label": `${w.enabled ? "Pause" : "Resume"} ${w.label} at ${w.pincode}`,
-      onclick: async () => {
-        try { await api(`/api/watches/${w.id}`, { enabled: !w.enabled }); w.enabled = !w.enabled; sw.setAttribute("aria-checked", String(!!w.enabled)); toast(w.enabled ? "Alert on" : "Alert paused"); }
+      onclick: once(async () => {
+        try { await api(`/api/watches/${w.id}`, { enabled: !w.enabled }); w.enabled = !w.enabled; sw.setAttribute("aria-checked", String(!!w.enabled)); sw.setAttribute("aria-label", `${w.enabled ? "Pause" : "Resume"} ${w.label} at ${w.pincode}`); toast(w.enabled ? "Alert on" : "Alert paused"); }
         catch (x) { toast(x.message, true); }
-      } });
+      }) });
     const del = h("button", { class: "icon-btn", "aria-label": `Delete ${w.label} at ${w.pincode}`, title: "Delete",
-      onclick: async () => {
+      onclick: once(async () => {
         if (!confirm(`Stop watching ${w.label} at ${w.pincode}?`)) return;
         try { await api(`/api/watches/${w.id}`, { delete: true }); await loadMe(); render(); toast("Deleted"); }
         catch (x) { toast(x.message, true); }
-      } }, "✕");
+      }) }, "✕");
     list.append(h("div", { class: "alert" },
       h("div", { class: "name" }, w.label),
       h("div", { class: "acts" }, sw, del),
@@ -627,7 +640,7 @@ async function settingsView() {
         h("button", { class: "primary wide", type: "submit" }, "Change password"))));
   }
   account.push(h("div", { class: "row", style: null },
-    h("button", { onclick: async () => { await api("/api/logout", {}); ME = null; go("#/login"); } }, "Log out"),
+    h("button", { onclick: once(async () => { await api("/api/logout", {}); ME = null; go("#/login"); }) }, "Log out"),
     h("button", { class: "danger", onclick: deleteSheet }, "Delete my account")));
 
   show(
@@ -637,7 +650,7 @@ async function settingsView() {
     h("div", { class: "card" }, h("h2", {}, "Other ways to get alerts (optional)"), ntfySetup(),
       h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),
-        h("button", { onclick: async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); } }, "Get a new topic"))),
+        h("button", { onclick: once(async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); }) }, "Get a new topic"))),
     h("div", { class: "card" }, h("h2", {}, "Slack or Discord (optional)"),
       h("p", { class: "small muted" }, u.webhook ? `Connected to ${u.webhook}. Use "Send a test" above to check it.` : "Paste an incoming webhook URL to get alerts in a channel too."),
       h("details", { class: "more" }, h("summary", { class: "small" }, "How do I get a Discord webhook URL?"),
@@ -658,7 +671,7 @@ async function settingsView() {
         catch (x) { hookErr.textContent = x.message; }
       } }, hook, hookErr,
         h("div", { class: "row" }, h("button", { class: "primary", type: "submit" }, "Save"),
-          u.webhook ? h("button", { type: "button", class: "ghost", onclick: async () => { await api("/api/settings", { webhook: "" }); await loadMe(); render(); toast("Removed"); } }, "Remove") : null))),
+          u.webhook ? h("button", { type: "button", class: "ghost", onclick: once(async () => { await api("/api/settings", { webhook: "" }); await loadMe(); render(); toast("Removed"); }) }, "Remove") : null))),
     h("div", { class: "card" }, h("h2", {}, "Recent messages"), historyBox),
     h("div", { class: "card" }, h("h2", {}, "Account"),
       h("p", { class: "small muted" }, `Signed in as ${u.username || u.email || u.name}.`), ...account),
@@ -829,7 +842,7 @@ async function activitySection() {
   };
   await load(true);
   const list = h("div", { class: "list" });
-  const moreBtn = h("button", { class: "ghost wide", onclick: async () => { await load(false); draw(); } }, "Load older");
+  const moreBtn = h("button", { class: "ghost wide", onclick: once(async () => { await load(false); draw(); }) }, "Load older");
   function draw() {
     list.replaceChildren(...(adminState.events.length ? adminState.events.map((e) => h("div", { class: "li" },
       e.level === "info" ? null : h("span", { class: `lvl ${e.level}` }, e.level),

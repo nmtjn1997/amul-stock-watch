@@ -185,3 +185,4 @@ details.more[open] summary::before { transform: rotate(90deg); }
 @media (max-width: 360px) { .seg.admin-nav { gap: 4px; } .seg.admin-nav button { font-size: 14px; padding: 7px 2px; } }
 a:focus-visible, button:focus-visible, summary:focus-visible, [role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+button[aria-busy="true"] { opacity: .6; cursor: progress; }
