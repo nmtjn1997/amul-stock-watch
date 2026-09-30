@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Back in Stock: Amul restock alerts</title>
+<meta name="description" content="Get a phone alert the moment an Amul product is back in stock at your pincode." />
+<meta name="theme-color" content="#0f1216" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Back in Stock" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="app.css" />
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/"><span class="dot"></span>Back in Stock</a>
+  <span class="grow"></span>
+  <span class="who" id="who" hidden></span>
+</header>
+<nav class="tabs" id="tabs" hidden>
+  <a href="#/" data-tab="alerts">My alerts</a>
+  <a href="#/settings" data-tab="settings">Settings</a>
+  <a href="#/admin" data-tab="admin" id="adminTab" hidden>Admin</a>
+</nav>
+<main id="view" aria-live="polite"></main>
+<div class="sheet-scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status"></div>
+<noscript><p class="page">This app needs JavaScript.</p></noscript>
+</body>
+</html>

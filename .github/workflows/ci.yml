@@ -51,6 +51,16 @@ jobs:
           & "$env:LOCALAPPDATA\amul-watch\bin\amul-watch.cmd" doctor; if ($LASTEXITCODE -gt 1) { exit 1 }
           & "$env:LOCALAPPDATA\amul-watch\bin\amul-watch.cmd" paths
 
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: syntax check the Worker and its UI
+        run: for f in cloud/src/*.js cloud/public/*.js; do node --check "$f"; done
+
   docker:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,40 @@
+# Back in Stock: the hosted, multi-user edition of Amul Stock Watch.
+# Deploy steps and limits: ../docs/HOSTED.md
+name = "amul"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = true   # so every page also gets the security headers
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "amul-watch"
+database_id = "ef6beaeb-f968-460d-9a00-a551a32b70be"
+migrations_dir = "migrations"
+
+# Pre-auth flood control for login and sign-up, keyed per network. Costs no D1 writes.
+[[ratelimits]]
+name = "AUTH_LIMIT"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[vars]
+MAX_USERS = "100"
+MAX_WATCHES_PER_USER = "10"
+MAX_PINCODES_PER_USER = "3"
+# Cloudflare Turnstile human check on sign-up. The matching TURNSTILE_SECRET is a
+# secret (wrangler secret put TURNSTILE_SECRET); without it the check is off.
+TURNSTILE_SITE_KEY = "0x4AAAAAAFKOxvHLEErz8Yjz"
+NTFY_SERVER = "https://ntfy.sh"
+# Google accounts with these emails become admins on first sign-in (comma separated).
+ADMIN_EMAILS = ""
+# Set GOOGLE_CLIENT_ID here and GOOGLE_CLIENT_SECRET + SESSION_SECRET as secrets to turn
+# on "Sign in with Google" (wrangler secret put GOOGLE_CLIENT_SECRET).
+GOOGLE_CLIENT_ID = ""

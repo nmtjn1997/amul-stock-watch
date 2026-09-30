@@ -8,9 +8,14 @@ by delivery region. Amul Stock Watch checks the products you care about, for eve
 pincode you care about, about once a minute, and notifies the right people as soon as
 something flips from out of stock to in stock.
 
-**[Try the live demo](https://nmtjn1997.github.io/amul-stock-watch/demo/)**: the real UI with sample
-data, right in the browser. Nothing is saved or sent. The watcher itself runs on your own
-machine (see Quick start).
+**Two ways to use it:**
+
+- **[Use the hosted version](https://amul.backinstock.workers.dev)**: create an account, add
+  up to 10 alerts, get phone notifications. Nothing to install. Runs free on Cloudflare
+  ([how](docs/HOSTED.md)).
+- **Run your own copy** on a laptop, a server or Docker (Quick start below), with every
+  notifier type and no limits. Try its UI first in the
+  [live demo](https://nmtjn1997.github.io/amul-stock-watch/demo/) (sample data, nothing saved).
 
 ![Watches: who is alerted for which product at which pincode](docs/images/watches.png)
 
@@ -246,6 +251,7 @@ it yourself.
 - [CONFIGURATION.md](docs/CONFIGURATION.md): every config key
 - [EXTENDING.md](docs/EXTENDING.md): add a notifier type, run the tests
 - [DESIGN-NOTES.md](docs/DESIGN-NOTES.md): decisions, trade-offs, known limits, roadmap
+- [HOSTED.md](docs/HOSTED.md): the multi-user Cloudflare edition, its limits and abuse protection, and how to deploy your own
 
 ## Disclaimer
 
