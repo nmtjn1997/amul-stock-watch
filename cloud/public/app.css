@@ -16,9 +16,9 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 a { color: var(--accent); }
 [hidden] { display: none !important; }
 
-.top { display: flex; align-items: center; gap: 10px; padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+.top { display: flex; align-items: center; gap: 10px; padding: max(2px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 2px max(16px, env(safe-area-inset-left));
        background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
-.brand { font-weight: 750; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 8px; letter-spacing: -.2px; }
+.brand { min-height: 44px; font-weight: 750; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 8px; letter-spacing: -.2px; }
 .brand .dot { width: 12px; height: 12px; border-radius: 4px; background: var(--accent); }
 .grow { flex: 1; }
 .who { font-size: 14px; color: var(--muted); }
@@ -162,3 +162,4 @@ details.more summary { cursor: pointer; font-weight: 650; }
 
 .good { color: var(--ok); }
 .bad { color: var(--bad); }
+input[aria-invalid="true"] { border-color: var(--bad); }

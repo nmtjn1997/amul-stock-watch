@@ -101,14 +101,14 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet
 
 function authView(mode) {
   const signup = mode === "signup";
-  const err = h("div", { class: "err" });
+  const err = h("div", { class: "err", role: "alert" });
   const params = new URLSearchParams((location.hash.split("?")[1] || ""));
   if (params.get("error")) err.textContent = AUTH_ERRORS[params.get("error")] || "Sign-in did not complete. Please try again.";
-  const user = h("input", { type: "text", id: "u", autocomplete: "username", autocapitalize: "none", spellcheck: "false", maxlength: "20", required: true });
-  const pass = h("input", { type: "password", id: "p", autocomplete: signup ? "new-password" : "current-password", maxlength: "128", required: true });
+  const user = h("input", { type: "text", id: "u", "aria-describedby": "u-hint", autocomplete: "username", autocapitalize: "none", spellcheck: "false", maxlength: "20", required: true });
+  const pass = h("input", { type: "password", id: "p", "aria-describedby": "p-hint", autocomplete: signup ? "new-password" : "current-password", maxlength: "128", required: true });
   const btn = h("button", { class: "primary wide", type: "submit" }, signup ? "Create account" : "Log in");
-  const uHint = h("div", { class: "hint" }, signup ? "3 to 20 characters: lowercase letters, digits or _. No email needed." : "");
-  const pHint = h("div", { class: "hint" }, signup ? "At least 8 characters." : "");
+  const uHint = h("div", { class: "hint", id: "u-hint" }, signup ? "3 to 20 characters: lowercase letters, digits or _. No email needed." : "");
+  const pHint = h("div", { class: "hint", id: "p-hint" }, signup ? "At least 8 characters." : "");
   const eye = h("button", { type: "button", class: "ghost eye", "aria-label": "Show password",
     onclick: () => { const showing = pass.type === "text"; pass.type = showing ? "password" : "text"; eye.textContent = showing ? "Show" : "Hide"; eye.setAttribute("aria-label", showing ? "Show password" : "Hide password"); } }, "Show");
   if (signup) {
@@ -116,12 +116,14 @@ function authView(mode) {
       user.value = user.value.toLowerCase().replace(/\s/g, "");
       const ok = /^[a-z0-9_]{3,20}$/.test(user.value);
       uHint.className = !user.value || ok ? "hint" : "hint bad";
+      user.setAttribute("aria-invalid", String(Boolean(user.value) && !ok));
       uHint.textContent = !user.value || ok ? "3 to 20 characters: lowercase letters, digits or _. No email needed."
         : /[^a-z0-9_]/.test(user.value) ? "Only lowercase letters, digits and _ are allowed." : "Use 3 to 20 characters.";
     });
     pass.addEventListener("input", () => {
       const n = pass.value.length;
       pHint.className = !n || n >= 8 ? "hint" : "hint bad";
+      pass.setAttribute("aria-invalid", String(n > 0 && n < 8));
       pHint.textContent = !n ? "At least 8 characters." : n < 8 ? `${8 - n} more character${8 - n > 1 ? "s" : ""} needed.` : "Looks good.";
     });
   }
