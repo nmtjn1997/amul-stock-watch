@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 # Set by the UI's "Force refresh" to start the next cycle now. Only meaningful when the
 # poller runs in this process (`serve`); POLLER_RUNNING says whether it does.
 WAKE = threading.Event()
+_FAILED_CYCLES = 0  # consecutive cycles where no product could be read
 POLLER_RUNNING = threading.Event()
 
 
@@ -78,6 +79,7 @@ def pause_info() -> dict[str, Any] | None:
 
 
 def pause(reason: str = "") -> dict[str, Any]:
+    log.info("polling paused: %s", reason.strip() or "by user")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"paused_at": time.strftime("%Y-%m-%d %H:%M:%S"), "reason": reason.strip() or "paused by user"}
     PAUSED_FILE.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -85,6 +87,7 @@ def pause(reason: str = "") -> dict[str, Any]:
 
 
 def resume() -> dict[str, Any]:
+    log.info("polling resumed")
     PAUSED_FILE.unlink(missing_ok=True)
     return {"paused": False}
 
@@ -103,6 +106,14 @@ def _write_heartbeat(state: dict[str, Any]) -> None:
         pass
 
 
+def _read_heartbeat() -> dict[str, Any]:
+    try:
+        data = json.loads(HEARTBEAT_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def watcher_state() -> dict[str, Any]:
     """What the UI and `status` show. Running = heartbeat newer than ~3 poll intervals."""
     state: dict[str, Any] = {"paused": is_paused(), "running": False, "last_poll": None}
@@ -112,7 +123,10 @@ def watcher_state() -> dict[str, Any]:
         beat = json.loads(HEARTBEAT_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return state
-    interval = float(load_config().get("poll_interval_seconds", 60))
+    try:
+        interval = _cfg_number(load_config(), "poll_interval_seconds", 60, 10)
+    except ValueError:
+        interval = 60.0
     age = time.time() - float(beat.get("ts") or 0)
     state["running"] = age < max(180.0, interval * 3)
     state["last_poll"] = beat
@@ -186,7 +200,9 @@ def _one_cycle(client: AmulClient, db: StockDB, guard: SessionGuard, cycle: int,
 
     summary: dict[str, Any] = {"checks": 0, "alerts": 0, "errors": []}
     # A spread cycle takes a whole interval, so mark liveness before it starts too.
-    _write_heartbeat({"cycle": cycle, "pincodes": n_pins, "polling": True})
+    last = _read_heartbeat()
+    _write_heartbeat({**{k: last[k] for k in ("checks", "alerts", "errors", "failed_cycles") if k in last},
+                      "cycle": cycle, "pincodes": n_pins, "polling": True})
     if n_pins:
         every = int(_cfg_number(cfg, "session_check_every_polls", 5, 1))
         session_ok = True
@@ -202,6 +218,9 @@ def _one_cycle(client: AmulClient, db: StockDB, guard: SessionGuard, cycle: int,
         else:
             summary["errors"] = ["Amul session unavailable"]
 
+    global _FAILED_CYCLES
+    ok = not n_pins or summary.get("checks", 0) > 0
+    _FAILED_CYCLES = 0 if ok else _FAILED_CYCLES + 1
     _write_heartbeat(
         {
             "cycle": cycle,
@@ -209,6 +228,7 @@ def _one_cycle(client: AmulClient, db: StockDB, guard: SessionGuard, cycle: int,
             "checks": summary.get("checks", 0),
             "alerts": summary.get("alerts", 0),
             "errors": [str(e) for e in summary.get("errors", [])][:5],
+            "failed_cycles": _FAILED_CYCLES,
         }
     )
     return cycle, prev_pins, interval
@@ -217,8 +237,10 @@ def _one_cycle(client: AmulClient, db: StockDB, guard: SessionGuard, cycle: int,
 def _sleep_until_next(stop: threading.Event, started: float, interval: float) -> None:
     if interval <= 0:
         return
-    cfg = load_config()
-    jitter = _cfg_number(cfg, "poll_jitter_seconds", 10, 0)
+    try:
+        jitter = _cfg_number(load_config(), "poll_jitter_seconds", 10, 0)
+    except Exception:  # invalid YAML mid-edit: the next cycle reports it, keep sleeping
+        jitter = 10.0
     deadline = started + interval + random.uniform(0, jitter)
     while not stop.is_set() and time.monotonic() < deadline:
         if WAKE.wait(min(1.0, max(0.0, deadline - time.monotonic()))):

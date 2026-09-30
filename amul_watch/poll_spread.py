@@ -14,6 +14,7 @@ from amul_watch.poller import (
     build_poll_tasks,
     finalize_poll_alerts,
     poll_product_task,
+    prune_unwatched_alerts,
     resolve_substore_task,
     session_looks_dead,
 )
@@ -58,6 +59,7 @@ def run_spread_poll(
 
     pincodes = collect_pincodes(client, cfg)
     tasks = build_poll_tasks(cfg, pincodes)
+    prune_unwatched_alerts(db, tasks)
     if not tasks:
         return summary
 

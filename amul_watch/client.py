@@ -127,6 +127,7 @@ class AmulClient:
         self._active_pin: str | None = None
         self._wanted_pin: str | None = None
         self._pin_store: dict[str, str] = {}
+        self._reselecting = False
 
     def _curl_base(self) -> list[str]:
         cmd = [find_curl(self._curl), "-sS", "--globoff"]
@@ -157,6 +158,15 @@ class AmulClient:
         if not self.has_session():
             raise AmulAPIError("could not start an Amul session (no jsessionid cookie returned)", retryable=True)
         log.info("started a new anonymous Amul session")
+        # A new session starts in the shop's default region; select the pincode that was
+        # being read, so a retried request never returns another region's stock.
+        wanted = self._wanted_pin
+        if wanted in self._pin_store and not self._reselecting:
+            self._reselecting = True
+            try:
+                self.use_pincode(wanted, self._pin_store[wanted])
+            finally:
+                self._reselecting = False
 
     def reload_from_env(self) -> None:
         self.cookie = os.environ.get("AMUL_COOKIE", self.cookie).strip()
@@ -214,8 +224,9 @@ class AmulClient:
         headers = self._headers(referer=referer, with_json=with_json or body is not None)
         if not self.has_session():
             self.bootstrap_session()
+        base = self._curl_base()  # may raise (curl missing) before any temp file exists
         config = curl_config(url, headers)
-        cmd = [*self._curl_base(), "-K", config, "-X", method, "-w", "\n__HTTP__%{http_code}"]
+        cmd = [*base, "-K", config, "-X", method, "-w", "\n__HTTP__%{http_code}"]
         if body is not None:
             cmd.extend(["--data-raw", json.dumps(body)])
         proc = _run_curl(cmd, config=config)
@@ -306,8 +317,9 @@ class AmulClient:
     def _curl_text(self, url: str, *, referer: str) -> str:
         self._limiter.wait()
         headers = self._headers(referer=referer)
+        base = self._curl_base()
         config = curl_config(url, headers)
-        proc = _run_curl([*self._curl_base(), "-K", config], config=config)
+        proc = _run_curl([*base, "-K", config], config=config)
         if proc.returncode != 0:
             raise AmulAPIError(f"curl failed: {proc.stderr.strip()}", retryable=True)
         return proc.stdout
@@ -400,6 +412,7 @@ class AmulClient:
         """Match browser pin change: region store + geolocation pin (same region needs both)."""
         info = self.lookup_pincode(pincode)
         ref = referer or f"{BASE_URL}/en/cart"
+        self._active_pin = None
         self.set_store_preference(info["store"], referer=ref)
         self.set_geolocation_preference(info["pincode"], referer=ref)
         self.refresh_session_tid()
@@ -419,6 +432,7 @@ class AmulClient:
         self._wanted_pin = pin
         if self._active_pin == pin:
             return
+        self._active_pin = None  # unknown until both calls succeed
         self.set_store_preference(store)
         self.set_geolocation_preference(pin)
         self._active_pin = pin
@@ -431,14 +445,11 @@ class AmulClient:
         q = json.dumps({"alias": alias}, separators=(",", ":"))
         params = {"q": q, "limit": "1", "substore": substore_id, "v": "5"}
         referer = f"{BASE_URL}/en/product/{alias}"
+        wanted = self._wanted_pin
+        if self._active_pin is None and wanted in self._pin_store:
+            self.use_pincode(wanted, self._pin_store[wanted])
         data = self._request("GET", PRODUCT_API, referer=referer, params=params)
         records = data.get("records") or data.get("data") or []
-        wanted = self._wanted_pin
-        if not records and self._active_pin is None and wanted in self._pin_store:
-            # The session was renewed mid-request, which drops the selected pincode.
-            self.use_pincode(wanted, self._pin_store[wanted])
-            data = self._request("GET", PRODUCT_API, referer=referer, params=params)
-            records = data.get("records") or data.get("data") or []
         if records:
             return records[0]
         if isinstance(data, dict) and data.get("alias"):

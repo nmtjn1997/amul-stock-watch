@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +40,11 @@ def pins_unified(results: list[PinPollResult]) -> bool:
     if len(ins) < 2:
         return len(ins) == 1
     return len({r.qty for r in ins}) == 1
+
+
+# A failed restock alert is retried, but not every cycle: a permanently broken notifier
+# would otherwise cost extra shop requests and a history line every minute.
+RETRY_BACKOFF_SECONDS = 300
 
 
 def _baseline_key(alias: str, pincode: str | None) -> str:
@@ -91,20 +97,31 @@ def process_product_alerts(
     product_label = results[0].product_label
     in_stock = _in_stock_results(results)
     for r in results:
-        if not r.in_stock:
+        # An empty body is "unknown", not "out of stock": it must not re-arm the gate.
+        if r.had_data and not r.in_stock:
             db.clear_alert(r.key)
             db.set_meta(_baseline_key(alias, r.pincode), "")
     if not in_stock:
-        db.set_meta(_baseline_key(alias, None), "")
+        if any(r.had_data for r in results):
+            db.set_meta(_baseline_key(alias, None), "")
         return 0, 0
 
-    transitions = [r for r in in_stock if not db.alert_sent(r.key)]
+    now = time.time()
+    transitions = [
+        r for r in in_stock
+        if not db.alert_sent(r.key) and float(db.get_meta(f"retry_after:{r.key}") or 0) <= now
+    ]
     alerts = 0
     qty_updates = 0
 
     if transitions:
         primary = transitions[0]
         pins = [r.pincode for r in transitions]
+        # Close the gate before sending, so a second process polling at the same moment
+        # (the CLI, or the UI's inline poll) does not send the same alert again. It is
+        # reopened below if nobody accepted the alert.
+        for r in transitions:
+            db.mark_alert(r.key)
         delivered = fire_transition_alert(
             cfg,
             db,
@@ -121,11 +138,15 @@ def process_product_alerts(
         if delivered:
             alerts += 1
             for r in transitions:
-                db.mark_alert(r.key)
                 db.set_meta(_baseline_key(alias, r.pincode), str(r.qty))
+                db.set_meta(f"retry_after:{r.key}", "")
             db.set_meta(_baseline_key(alias, None), str(in_stock[0].qty))
         else:
-            log.warning("no notifier accepted the %s alert; it will be retried next cycle", product_label)
+            for r in transitions:
+                db.clear_alert(r.key)
+                db.set_meta(f"retry_after:{r.key}", str(now + RETRY_BACKOFF_SECONDS))
+            log.warning("no notifier accepted the %s alert; retrying in %ss",
+                        product_label, RETRY_BACKOFF_SECONDS)
 
     fresh = {r.pincode for r in transitions}
     if pins_unified(results):

@@ -237,4 +237,8 @@ def fire_transition_alert(
             "results": results,
         }
     )
-    return not results or any(r == "ok" for r in results.values())
+    # Delivered when someone accepted it, or when every notifier on the route is
+    # switched off (nobody to tell is not a failure worth retrying).
+    return all(r == "ok" or r.startswith("skipped") for r in results.values()) or any(
+        r == "ok" for r in results.values()
+    )

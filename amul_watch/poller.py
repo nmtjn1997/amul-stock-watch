@@ -28,6 +28,11 @@ class PollTask:
     item: dict[str, Any] | None = None
 
 
+def prune_unwatched_alerts(db: StockDB, tasks: list[PollTask]) -> None:
+    keep = {f"{t.pincode}:{t.item['alias']}" for t in tasks if t.kind == "product" and t.item}
+    db.prune_alerts(keep)
+
+
 def build_poll_tasks(cfg: dict[str, Any], pincodes: list[dict[str, str]]) -> list[PollTask]:
     """Flatten pin × product work for spread scheduling (rebuilt each cycle)."""
     weights = poll_priority_weights(cfg)
@@ -191,11 +196,20 @@ def session_looks_dead(
     empty the session is dead, and trusting it would read as "all out of stock", reset
     every alert gate and cause false restock alerts on the next good cycle."""
     all_results = [r for rs in by_alias.values() for r in rs]
-    if not all_results or any(r.had_data for r in all_results):
+    if not all_results:
+        return False
+    if any(r.had_data for r in all_results):
+        # The session works, so an empty answer means the shop has no such product.
+        for r in all_results:
+            if not r.had_data:
+                summary["errors"].append(
+                    f"{r.pincode}/{r.alias}: the shop returned nothing for this product (check the alias)"
+                )
         return False
     summary["session_expired"] = True
     summary["errors"].append(f"session likely expired: all {len(all_results)} products returned empty")
-    log.warning("SESSION DEAD? all %d product checks returned empty bodies; restarting the session", len(all_results))
+    log.warning("SESSION DEAD? all %d product checks returned empty bodies; restarting the session "
+                "(if this repeats, check the product aliases with `amul-watch doctor`)", len(all_results))
     if guard:
         guard.handle_dead_session()
     return True
@@ -219,6 +233,7 @@ def run_poll(
 
     pincodes = collect_pincodes(client, cfg)
     tasks = build_poll_tasks(cfg, pincodes)
+    prune_unwatched_alerts(db, tasks)
     by_alias: dict[str, list[PinPollResult]] = defaultdict(list)
     substores: dict[str, str] = {}
 
@@ -298,17 +313,17 @@ def run_stock_report(client: AmulClient, db: StockDB, cfg: dict[str, Any], *, gu
                 continue
 
             if not raw:
-                stock = ProductStock(
-                    alias=alias,
-                    name=name,
-                    url=f"https://shop.amul.com/en/product/{alias}",
-                    variants=[],
-                    best=None,
-                    pack_of_30=None,
-                    any_in_stock=False,
-                )
-            else:
-                stock = parse_product_stock(raw, alias=alias, prefer_pack_of_30=prefer_pack)
+                rows.append({
+                    "product": name,
+                    "pincode": pin,
+                    "location": pin_label,
+                    "status": "NOT FOUND",
+                    "detail": "the shop returned nothing (check the alias)",
+                    "qty": 0,
+                    "price": None,
+                })
+                continue
+            stock = parse_product_stock(raw, alias=alias, prefer_pack_of_30=prefer_pack)
 
             best = stock.best
             in_stock = bool(best and best.in_stock)

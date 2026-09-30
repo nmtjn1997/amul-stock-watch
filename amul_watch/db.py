@@ -80,6 +80,17 @@ class StockDB:
         )
         self._conn.commit()
 
+    def prune_alerts(self, keep: set[str]) -> int:
+        """Forget alert rows for pincode:product pairs that are no longer polled, so a
+        watch turned back on alerts on its next restock."""
+        rows = [r["key"] for r in self._conn.execute("SELECT key FROM alert_sent").fetchall()]
+        stale = [k for k in rows if k not in keep]
+        for key in stale:
+            self._conn.execute("DELETE FROM alert_sent WHERE key=?", (key,))
+        if stale:
+            self._conn.commit()
+        return len(stale)
+
     def clear_alert(self, key: str) -> None:
         """Forget a prior full alert so the next 0→in-stock can notify again."""
         self._conn.execute("DELETE FROM alert_sent WHERE key=?", (key,))

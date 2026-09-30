@@ -15,9 +15,10 @@ def _curl(url: str, data: str, headers: dict[str, str], timeout: int) -> str:
 
     # URL and headers go in a private config file: bot tokens in URLs and Authorization
     # headers must not be visible in the process list.
+    curl = find_curl()
     config = curl_config(url, headers)
     try:
-        proc = _run_curl([find_curl(), "-sS", "--fail-with-body", "-X", "POST", "-K", config,
+        proc = _run_curl([curl, "-sS", "--fail-with-body", "-X", "POST", "-K", config,
                           "--data-binary", "@-"], input_text=data, timeout=timeout, config=config)
     except AmulAPIError as exc:
         raise RuntimeError(str(exc)) from exc
