@@ -50,6 +50,12 @@ async function api(path, body) {
   catch { throw new Error("Could not reach the server. Check your internet connection and try again."); }
   const data = await r.json().catch(() => ({ error: "Unexpected answer from the server." }));
   if (!r.ok) {
+    // The session ended (expired, or signed out elsewhere): go to login instead of failing in place.
+    if (r.status === 401 && ME && !/^\/api\/(login|signup|password|account\/delete)$/.test(path)) {
+      ME = null;
+      go("#/login");
+      toast("Your session ended. Please log in again.", true);
+    }
     const e = new Error(data.error || `Error ${r.status}`);
     e.status = r.status;
     throw e;
@@ -955,10 +961,16 @@ async function render() {
 
 window.addEventListener("hashchange", render);
 (async function boot() {
-  const [cfg] = await Promise.all([api("/api/config").catch(() => null), loadMe().catch(() => null)]);
+  let bootErr = null;
+  const [cfg] = await Promise.all([api("/api/config").catch(() => null), loadMe().catch((x) => { bootErr = x; })]);
   if (cfg) CONFIG = cfg;
+  if (bootErr) {
+    // Offline or a server error: say so, rather than showing the sign-up page to someone signed in.
+    return show(h("div", { class: "page" }, h("div", { class: "card warn" }, h("b", {}, "Could not load your alerts. "), bootErr.message,
+      h("button", { class: "primary wide", onclick: () => location.reload() }, "Try again"))));
+  }
   if (ME && !ME.watches.length && !location.hash.includes("settings") && !location.hash.includes("admin")) { location.hash = "#/setup"; }
   if (!ME && !/^#\/(login|signup)/.test(location.hash)) { location.hash = "#/signup"; }
   render();
-  setInterval(async () => { if (ME && !document.hidden && (location.hash === "#/" || location.hash === "")) { await loadMe(); if (ME) alertsView(); } }, 60000);
+  setInterval(async () => { if (ME && !document.hidden && (location.hash === "#/" || location.hash === "")) { await loadMe().catch(() => null); if (ME) alertsView(); } }, 60000);
 })();
