@@ -782,8 +782,8 @@ async function monitorSection() {
         tile(ev.signup || 0, "new sign-ups"),
         tile(ev.login_fail || 0, "failed logins", (ev.login_fail || 0) > 20 ? "warn" : ""),
         tile(`${d.avg_ms} ms`, `avg run, max ${d.max_ms} ms`),
-        tile(`${d.runs}/1440`, "runs completed"),
-        tile(d.max_units, "pincode groups waiting")),
+        tile(`${d.runs}/${d.first_ts ? Math.min(1440, Math.floor((Date.now() / 1000 - d.first_ts) / 60) + 1) : 0}`, "runs done / due"),
+        tile(d.max_units, "pincode groups watched")),
       h("p", { class: "small muted" }, `Budget: at most ${m.limits.amul_per_run} Amul requests per run, one run a minute, shared by everyone. Each pincode and product is read once for all the people watching it.`)),
     h("div", { class: "card" }, h("h2", {}, "Per hour"),
       barChart(hourlySeries(m.hourly, m.now, "amul"), { label: "Amul requests", from: "24 h ago", to: "now" }),
@@ -792,7 +792,11 @@ async function monitorSection() {
       barChart(hourlySeries(m.hourly, m.now, "error_runs"), { label: "Runs with errors", color: "var(--bad)", from: "24 h ago", to: "now" })),
     h("div", { class: "card" }, h("h2", {}, "Last 7 days"),
       barChart(dailySeries(m.daily, m.now), { label: "Amul requests per day", from: "7 days ago", to: "today" })),
-    h("div", { class: "card" }, h("h2", {}, "Recent runs"), h("div", { class: "list" }, runsRows.length ? runsRows : h("div", { class: "muted small" }, "No runs yet."))),
+    h("div", { class: "card" }, h("h2", {}, "Recent runs"), (() => {
+      const list = h("div", { class: "list" }, runsRows.length ? runsRows.slice(0, 10) : h("div", { class: "muted small" }, "No runs yet."));
+      if (runsRows.length > 10) list.append(h("button", { type: "button", class: "ghost", onclick: (e) => { e.currentTarget.remove(); list.replaceChildren(...runsRows); } }, `Show all ${runsRows.length}`));
+      return list;
+    })()),
   ];
 }
 
@@ -818,10 +822,10 @@ async function activitySection() {
   const moreBtn = h("button", { class: "ghost wide", onclick: async () => { await load(false); draw(); } }, "Load older");
   function draw() {
     list.replaceChildren(...(adminState.events.length ? adminState.events.map((e) => h("div", { class: "li" },
-      h("span", { class: `lvl ${e.level}` }, e.level),
+      e.level === "info" ? null : h("span", { class: `lvl ${e.level}` }, e.level),
       h("div", { class: "main" },
         h("div", {}, h("b", {}, KIND_LABEL[e.kind] || e.kind), " ", h("span", { class: "muted small" }, e.actor || "")),
-        h("div", { class: "small muted" }, `${new Date(e.ts * 1000).toLocaleString()}${e.net ? `  network ${e.net}` : ""}`),
+        h("div", { class: "small muted" }, `${ago(e.ts)}, ${new Date(e.ts * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}${e.net ? ` · network ${e.net}` : ""}`),
         e.detail ? h("div", { class: "small detail" }, e.detail) : null))) : [h("div", { class: "muted small" }, "Nothing matches.")]));
     moreBtn.hidden = !adminState.more;
   }

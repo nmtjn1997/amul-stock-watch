@@ -146,7 +146,7 @@ details.more summary { cursor: pointer; font-weight: 650; min-height: 44px; disp
 .seg button { min-height: 38px; padding: 7px 14px; border-radius: 999px; background: var(--panel); }
 .seg button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-.chip { min-height: 34px; padding: 5px 12px; border-radius: 999px; font-size: 14px; }
+.chip { position: relative; min-height: 34px; padding: 5px 12px; border-radius: 999px; font-size: 14px; }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .dotstat { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: var(--muted); vertical-align: middle; }
 .dotstat.big { width: 14px; height: 14px; margin: 0 4px 0 0; }
@@ -180,3 +180,4 @@ details.more summary::before { content: "▸"; color: var(--muted); transition: 
 details.more[open] summary::before { transform: rotate(90deg); }
 .seg[role="tablist"] { display: grid; grid-template-columns: repeat(4, 1fr); }
 .seg[role="tablist"] button { padding: 7px 4px; }
+.chip::before { content: ""; position: absolute; inset: -5px 0; } /* 44 px tall tap area, gaps stay visual */

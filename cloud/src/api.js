@@ -327,7 +327,7 @@ export async function adminMonitor(env, user) {
     `SELECT COUNT(*) AS runs, COALESCE(SUM(amul_requests),0) AS amul, COALESCE(SUM(checks),0) AS checks,
             COALESCE(SUM(alerts),0) AS alerts, COALESCE(SUM(notify_requests),0) AS notify,
             COALESCE(SUM(CASE WHEN errors != '[]' THEN 1 ELSE 0 END),0) AS error_runs,
-            COALESCE(ROUND(AVG(ms)),0) AS avg_ms, COALESCE(MAX(ms),0) AS max_ms, COALESCE(MAX(units_total),0) AS max_units
+            COALESCE(ROUND(AVG(ms)),0) AS avg_ms, COALESCE(MAX(ms),0) AS max_ms, COALESCE(MAX(units_total),0) AS max_units, MIN(ts) AS first_ts
      FROM runs WHERE ts > ?`).bind(since);
   const [h1, h24, hourly, daily, recent, kinds, active, last] = await db.batch([
     sums(t - 3600),
