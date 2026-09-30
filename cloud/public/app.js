@@ -65,7 +65,8 @@ function toast(msg, err) {
   t._h = setTimeout(() => (t.className = "toast"), err ? 4500 : 2500);
 }
 
-const title = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const ABBR = new Set(["up", "ncr", "mp", "ap", "hp", "jk", "uk", "ne"]);
+const title = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w+/g, (w) => ABBR.has(w.toLowerCase()) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1));
 
 function ago(ts) {
   if (!ts) return "not yet";
@@ -87,13 +88,19 @@ function busy(btn, on, label) {
   else { btn.textContent = btn._label || btn.textContent; btn.disabled = false; }
 }
 
+let sheetOpener = null;
 function openSheet(...nodes) {
+  sheetOpener = document.activeElement;
   $("#sheet").replaceChildren(...present(nodes));
   $("#scrim").hidden = false;
   const first = $("#sheet").querySelector("input,button");
   if (first) setTimeout(() => first.focus(), 50);
 }
-function closeSheet() { $("#scrim").hidden = true; }
+function closeSheet() {
+  $("#scrim").hidden = true;
+  if (sheetOpener && sheetOpener.isConnected) sheetOpener.focus();
+  sheetOpener = null;
+}
 $("#scrim")?.addEventListener("click", (e) => { if (e.target.id === "scrim") closeSheet(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
 
@@ -527,7 +534,7 @@ function alertsView() {
     list.append(h("div", { class: "alert" },
       h("div", { class: "name" }, w.label),
       h("div", { class: "acts" }, sw, del),
-      h("div", { class: "meta" }, status(w), `Pincode ${w.pincode}${w.store ? ` (${title(w.store)})` : ""}`),
+      h("div", { class: "meta" }, status(w), h("span", { class: "nowrap" }, `${w.pincode}${w.store ? ` · ${title(w.store)}` : ""}`)),
     ));
   }
   const channels = [];
@@ -538,7 +545,7 @@ function alertsView() {
   show(
     h("div", { class: "summary card" },
       h("div", { class: "grow" },
-        h("div", { class: "count" }, `${ws.length} of ${max} alerts`, h("span", { class: "muted small" }, ` · ${new Set(ws.map((w) => w.pincode)).size} of ${ME.user.max_pincodes} pincodes`)),
+        h("div", { class: "count" }, `${ws.length} of ${max} alerts `, h("span", { class: "muted small nowrap" }, `· ${new Set(ws.map((w) => w.pincode)).size} of ${ME.user.max_pincodes} pincodes`)),
         h("div", { class: "muted small" }, channels.length ? `Alerts go to: ${channels.join(", ")}. Last check: ${ago(ME.last_check)}.` : `Last check: ${ago(ME.last_check)}.`)),
       addBtn),
     channels.length ? null : h("div", { class: "card warn" }, h("b", {}, "You will not get alerts yet. "),
@@ -556,9 +563,15 @@ function addSheet() {
   const pickWrap = h("div", {});
   const err = h("div", { class: "err" });
   const save = h("button", { class: "primary wide", type: "submit" }, "Add");
+  const count = () => {
+    const n = pickWrap.querySelectorAll("input:checked:not(:disabled)").length;
+    save.textContent = n > 1 ? `Add ${n} alerts` : "Add alert";
+  };
+  pickWrap.addEventListener("change", count);
   function refresh() {
     const taken = new Set(ME.watches.filter((w) => w.pincode === ready).map((w) => w.alias));
     pickWrap.replaceChildren(h("label", { class: "f" }, "Products"), productPicker(taken));
+    count();
   }
   refresh();
   pf.input.addEventListener("input", () => { ready = ""; });
@@ -574,11 +587,12 @@ function addSheet() {
       closeSheet(); await loadMe(); render(); toast(products.length > 1 ? `${products.length} alerts added` : "Alert added");
     } catch (x) { err.textContent = x.message; } finally { busy(save, false); }
   } },
-    h("h2", {}, "New alert"),
+    h("h2", { id: "sheet-title" }, "New alert"),
     h("label", { class: "f", for: "pin" }, "Pincode"),
     h("div", { class: "row" }, h("div", { class: "grow" }, pf.input), h("button", { type: "button", onclick: pf.check }, "Check")),
-    pf.out, pickWrap, err, save,
-    h("button", { type: "button", class: "ghost wide", onclick: closeSheet }, "Cancel"),
+    pf.out, pickWrap,
+    h("div", { class: "sheet-foot" }, err, save,
+      h("button", { type: "button", class: "ghost wide", onclick: closeSheet }, "Cancel")),
   ));
 }
 
@@ -654,7 +668,7 @@ function deleteSheet() {
     e.preventDefault();
     try { await api("/api/account/delete", { password: pw.value }); closeSheet(); ME = null; go("#/signup"); toast("Your account and alerts were deleted."); }
     catch (x) { err.textContent = x.message; }
-  } }, h("h2", {}, "Delete your account?"),
+  } }, h("h2", { id: "sheet-title" }, "Delete your account?"),
     h("p", { class: "muted" }, "Your alerts and history are removed right away. This cannot be undone."),
     ME.user.has_password ? [h("label", { class: "f", for: "delpw" }, "Password"), pw] : null, err,
     h("button", { class: "primary wide", type: "submit" }, "Delete everything"),

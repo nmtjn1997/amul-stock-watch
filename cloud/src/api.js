@@ -58,14 +58,17 @@ async function lastRun(env) {
 // ------------------------------------------------------------------ user routes
 
 export async function me(env, user) {
-  const products = (await env.DB.prepare("SELECT alias, label FROM products WHERE enabled = 1 ORDER BY sort, label").all()).results;
-  const devices = (await env.DB.prepare("SELECT id, label, created_at, endpoint FROM push_subs WHERE user_id = ? ORDER BY created_at").bind(user.id).all()).results
-    .map((d) => ({ id: d.id, label: d.label, created_at: d.created_at, endpoint_hash: d.endpoint.slice(-24) }));
-  const run = await lastRun(env);
+  const [products, subs, run, watches] = await Promise.all([
+    env.DB.prepare("SELECT alias, label FROM products WHERE enabled = 1 ORDER BY sort, label").all().then((r) => r.results),
+    env.DB.prepare("SELECT id, label, created_at, endpoint FROM push_subs WHERE user_id = ? ORDER BY created_at").bind(user.id).all().then((r) => r.results),
+    lastRun(env),
+    myWatches(env, user),
+  ]);
+  const devices = subs.map((d) => ({ id: d.id, label: d.label, created_at: d.created_at, endpoint_hash: d.endpoint.slice(-24) }));
   return json({
     user: publicUser(user, env),
     devices,
-    watches: await myWatches(env, user),
+    watches,
     products,
     google: googleEnabled(env),
     last_check: run ? run.ts : null,
