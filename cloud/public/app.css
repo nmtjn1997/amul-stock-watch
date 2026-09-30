@@ -1,6 +1,6 @@
 :root {
   --bg: #f6f7f9; --panel: #fff; --panel2: #eef1f5; --ink: #15181c; --muted: #5f6b7a; --line: #e2e5ea;
-  --accent: #2f6df6; --accent-ink: #fff; --ok: #15803d; --okbg: #e7f6ec; --bad: #c62828; --badbg: #fdeaea;
+  --accent: #2f6df6; --accent-ink: #fff; --ok: #13733a; --okbg: #e7f6ec; --bad: #c62828; --badbg: #fdeaea;
   --warn: #a15c07; --warnbg: #fff4e2; --radius: 14px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.06);
 }
 @media (prefers-color-scheme: dark) {
