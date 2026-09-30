@@ -15,6 +15,7 @@ import { allow, now } from "./util.js";
 const BUDGET = 46; // of 50, leaving room for the session bootstrap retry
 const NOTIFY_RESERVE = 8;
 const ZONE_TTL = 86400;
+const GAP_MS = 750;
 const CHUNK = 20; // products per unit: 20 reads + lookup + 2 region calls fit in any run
 
 async function getMeta(db, key, fallback) {
@@ -94,6 +95,11 @@ export async function runPoll(env) {
 
   const budget = { left: BUDGET };
   const client = new AmulClient(db, budget);
+  // Spread the shop requests over the minute instead of a burst on the hour mark:
+  // a random 0 to 5 s start, then at least GAP_MS apart. BUDGET x (GAP_MS + ~300 ms) stays
+  // under 60 s, so one run ends before the next cron fires.
+  client.gapMs = GAP_MS;
+  await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 5000)));
   await client.load();
   let cursor = Number(await getMeta(db, "poll_cursor", 0)) % pins.length;
   const fresh = []; // pairs now in stock, to alert on

@@ -38,6 +38,14 @@ export class AmulClient {
     this.budget = budget; // shared subrequest counter: { left: n }
     this.jar = {};
     this.activePin = null;
+    this.gapMs = 0; // minimum time between two requests to the shop
+    this.lastAt = 0;
+  }
+
+  async pace() {
+    const wait = this.lastAt + this.gapMs - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    this.lastAt = Date.now();
   }
 
   async load() {
@@ -101,6 +109,7 @@ export class AmulClient {
     this.spend();
     this.jar = {};
     this.activePin = null;
+    await this.pace();
     const res = await net(`${BASE}/en/`, { headers: { "User-Agent": UA }, redirect: "manual" });
     this.absorb(res);
     await res.body?.cancel();
@@ -112,6 +121,7 @@ export class AmulClient {
     const url = `${BASE}${path}${params ? "?" + new URLSearchParams(params) : ""}`;
     for (let attempt = 0; attempt < 2; attempt++) {
       this.spend();
+      await this.pace();
       const res = await net(url, {
         method,
         headers: await this.headers(referer, body !== undefined),
