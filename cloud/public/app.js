@@ -434,7 +434,6 @@ function telegramSetup() {
 
 function ntfySetup() {
   const u = ME.user;
-  const web = `${u.ntfy_server}/${u.ntfy_topic}`;
   const deep = `ntfy://${u.ntfy_server.replace(/^https?:\/\//, "")}/${u.ntfy_topic}`;
   const toggle = h("button", { type: "button", class: "switch", role: "switch", "aria-checked": String(u.ntfy_on), "aria-label": "Also send to the ntfy app",
     onclick: async () => {
@@ -453,7 +452,7 @@ function ntfySetup() {
       isPhone() ? null : qrReveal([
         { label: "iPhone app", text: "https://apps.apple.com/app/ntfy/id1625396347", hint: "Opens ntfy in the App Store." },
         { label: "Android app", text: "https://play.google.com/store/apps/details?id=io.heckel.ntfy", hint: "Opens ntfy in the Play Store." },
-        { label: "Subscribe", text: web, hint: "After installing, scan this to subscribe to your topic without typing it." },
+        { label: "Subscribe (Android)", text: deep, hint: "After installing, scan this to open the ntfy app on your topic. On iPhone, tap + in the app and paste the topic below." },
       ]),
       copyRow(u.ntfy_topic, "Topic"),
       h("p", { class: "hint" }, "Keep the topic private: anyone who knows it can read these alerts. The free ntfy.sh service often does not answer this site; Telegram or browser notifications are more reliable."),
