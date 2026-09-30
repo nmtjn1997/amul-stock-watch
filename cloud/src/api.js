@@ -208,7 +208,7 @@ export async function sendTest(env, user) {
   await env.DB.prepare("INSERT INTO alert_log (user_id, ts, kind, product, pincodes, result) VALUES (?, ?, 'test', 'test', '', ?)")
     .bind(user.id, now(), res.detail).run();
   await logEvent(env, { level: res.ok ? "info" : "warn", kind: "test_sent", user, detail: res.detail });
-  return json({ ok: res.ok, detail: res.detail });
+  return json({ ok: res.ok, detail: res.detail, channels: res.channels });
 }
 
 export async function history(env, user) {

@@ -348,12 +348,44 @@ async function turnOffPush() {
   }
 }
 
+// Every channel in one place: whether it is set up, and what the last test did there.
+function channelsCard() {
+  const u = ME.user;
+  const rows = [
+    { name: "Browser", label: "Browser notifications", on: ME.devices.length > 0, state: ME.devices.length ? `${ME.devices.length} device${ME.devices.length > 1 ? "s" : ""}` : "Off" },
+    u.telegram === null ? null : { name: "Telegram", label: "Telegram", on: u.telegram, state: u.telegram ? "Connected" : "Not connected" },
+    { name: u.webhook || "Slack", label: "Slack or Discord", on: Boolean(u.webhook), state: u.webhook ? `${u.webhook} connected` : "Not set" },
+    { name: "ntfy", label: "ntfy app", on: u.ntfy_on, state: u.ntfy_on ? "On" : "Off" },
+  ].filter(Boolean);
+  for (const r of rows) r.result = h("div", { class: "small" });
+  const btn = h("button", { type: "button", class: "primary", onclick: async () => {
+    busy(btn, true, "Sending...");
+    for (const r of rows) r.result.replaceChildren();
+    try {
+      const res = await api("/api/test", {});
+      for (const r of rows) {
+        const c = (res.channels || []).find((x) => x.name === r.name);
+        r.result.className = c ? (c.ok ? "small good" : "small bad") : "small muted";
+        r.result.textContent = c ? (c.ok ? `✓ ${c.detail}` : `✕ ${c.detail}`) : "Skipped, not set up";
+      }
+      const sent = (res.channels || []).filter((c) => c.ok).length;
+      toast(res.channels && res.channels.length ? `Sent to ${sent} of ${res.channels.length}` : "Nothing is set up yet", !sent);
+    } catch (x) { toast(x.message, true); }
+    finally { busy(btn, false); }
+  } }, "Send a test to all");
+  return h("div", { class: "card" }, h("h2", {}, "Where alerts go"),
+    h("div", { class: "list" }, rows.map((r) => h("div", { class: "li" },
+      h("div", { class: "main" }, h("div", {}, r.label), r.result),
+      h("span", { class: r.on ? "good small" : "muted small" }, r.state)))),
+    h("div", { class: "row" }, btn));
+}
+
 function notifySetup(compact) {
   const box = h("div", {});
   const status = h("div", { class: "hint" });
   const testBtn = h("button", { type: "button", onclick: async () => {
     busy(testBtn, true, "Sending...");
-    try { const r = await api("/api/test", {}); toast(r.ok ? "Test sent. Check your notifications." : `Not delivered: ${r.detail}`, !r.ok); }
+    try { const r = await api("/api/test", {}); toast(r.ok ? `Test sent: ${r.detail}` : `Not delivered: ${r.detail}`, !r.ok); }
     catch (x) { toast(x.message, true); } finally { busy(testBtn, false); }
   } }, "Send a test");
 
@@ -573,13 +605,14 @@ async function settingsView() {
     h("button", { class: "danger", onclick: deleteSheet }, "Delete my account")));
 
   show(
-    h("div", { class: "card" }, h("h2", {}, "Notifications"), notifySetup(false)),
+    channelsCard(),
+    h("div", { class: "card" }, h("h2", {}, "Browser notifications"), notifySetup(false)),
     u.telegram === null ? null : h("div", { class: "card" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
     h("div", { class: "card" }, h("h2", {}, "Other ways to get alerts (optional)"), ntfySetup(),
       h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),
         h("button", { onclick: async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); } }, "Get a new topic"))),
-    h("div", { class: "card" }, h("h2", {}, "Also send to Discord or Slack (optional)"),
+    h("div", { class: "card" }, h("h2", {}, "Slack or Discord (optional)"),
       h("p", { class: "small muted" }, u.webhook ? `Connected to ${u.webhook}. Use "Send a test" above to check it.` : "Paste an incoming webhook URL to get alerts in a channel too."),
       h("details", { class: "more" }, h("summary", { class: "small" }, "How do I get a Discord webhook URL?"),
         h("ol", { class: "how small" },

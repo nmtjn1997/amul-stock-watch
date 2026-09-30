@@ -35,14 +35,28 @@ async function webhook(url, alert) {
   const text = `${alert.title}\n${alert.message}`;
   const body = url.includes("hooks.slack.com") ? { text } : { content: text.slice(0, 1900) };
   const res = await fetch(url, { method: "POST", redirect: "manual", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const reason = res.ok ? "" : (await res.text()).slice(0, 80);
+  if (reason === "messages_tab_disabled") {
+    throw new Error("Slack could not post: this webhook points at the app's own DM and its Messages tab is off. Make a webhook for a channel instead");
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}${reason ? ` ${reason}` : ""}`);
   await res.body?.cancel();
-  if (!res.ok) throw new Error(`webhook HTTP ${res.status}`);
 }
 
-// Returns { ok, detail, used } where used is the number of outbound requests made.
+// Returns { ok, detail, used, channels } where used is the number of outbound requests made
+// and channels is one { name, ok, detail } per channel that was tried.
 export async function deliver(env, user, alert) {
-  const results = [];
+  const channels = [];
   let used = 0;
+  const attempt = async (name, fn) => {
+    used++;
+    try {
+      await fn();
+      channels.push({ name, ok: true, detail: "sent" });
+    } catch (e) {
+      channels.push({ name, ok: false, detail: e.message });
+    }
+  };
   if (pushEnabled(env)) {
     const subs = (await env.DB.prepare("SELECT * FROM push_subs WHERE user_id = ?").bind(user.id).all()).results;
     let sent = 0;
@@ -57,35 +71,17 @@ export async function deliver(env, user, alert) {
         errors.push(e.message);
       }
     }
-    if (subs.length) results.push(sent ? `${sent} device${sent > 1 ? "s" : ""}: ok` : `devices: ${errors[0] || "unsubscribed"}`);
-  }
-  if (user.ntfy_on) {
-    try {
-      used++;
-      await ntfy(env, user.ntfy_topic, alert);
-      results.push("ntfy: ok");
-    } catch (e) {
-      results.push(`ntfy: ${e.message}`);
+    if (subs.length) {
+      channels.push(sent
+        ? { name: "Browser", ok: true, detail: `sent to ${sent} of ${subs.length} device${subs.length > 1 ? "s" : ""}` }
+        : { name: "Browser", ok: false, detail: errors[0] || "the device turned notifications off" });
     }
   }
-  if (user.tg_chat_id && telegramEnabled(env)) {
-    try {
-      used++;
-      await sendTelegram(env, user, alert);
-      results.push("telegram: ok");
-    } catch (e) {
-      results.push(`telegram: ${e.message}`);
-    }
-  }
-  if (user.webhook_url) {
-    try {
-      used++;
-      await webhook(user.webhook_url, alert);
-      results.push("chat: ok");
-    } catch (e) {
-      results.push(`chat: ${e.message}`);
-    }
-  }
-  if (!results.length) results.push("nowhere to send: turn on notifications in Settings");
-  return { ok: results.some((r) => r.endsWith(": ok")), detail: results.join(", "), used };
+  if (user.ntfy_on) await attempt("ntfy", () => ntfy(env, user.ntfy_topic, alert));
+  if (user.tg_chat_id && telegramEnabled(env)) await attempt("Telegram", () => sendTelegram(env, user, alert));
+  if (user.webhook_url) await attempt(user.webhook_url.includes("hooks.slack.com") ? "Slack" : "Discord", () => webhook(user.webhook_url, alert));
+  const detail = channels.length
+    ? channels.map((c) => `${c.name}: ${c.ok ? "ok" : c.detail}`).join(", ")
+    : "nowhere to send: turn on notifications in Settings";
+  return { ok: channels.some((c) => c.ok), detail, used, channels };
 }
