@@ -4,6 +4,7 @@
 
 import * as api from "./api.js";
 import { currentUser, googleCallback, googleStart, login, logout, signup } from "./auth.js";
+import { logEvent } from "./log.js";
 import { runPoll } from "./poll.js";
 import { HttpError, json, secure } from "./util.js";
 
@@ -78,6 +79,8 @@ async function route(req, env) {
   m = path.match(/^\/api\/admin\/users\/(\d+)$/);
   if (m && method === "POST") return api.adminUser(env, user, m[1], body);
   if (path === "/api/admin/products" && method === "POST") return api.adminProduct(env, user, body);
+  if (path === "/api/admin/monitor" && method === "GET") return api.adminMonitor(env, user);
+  if (path === "/api/admin/events" && method === "GET") return api.adminEvents(env, user, Object.fromEntries(url.searchParams));
   throw new HttpError(404, "Not found.");
 }
 
@@ -88,6 +91,8 @@ export default {
     } catch (e) {
       if (e instanceof HttpError) return secure(json({ error: e.message }, e.status));
       console.error("unhandled", e && e.stack ? e.stack : e);
+      const url = new URL(req.url);
+      await logEvent(env, { level: "error", kind: "error", actor: "system", detail: `${req.method} ${url.pathname}: ${e && e.message ? e.message : e}` });
       return secure(json({ error: "Something went wrong. Please try again." }, 500));
     }
   },
@@ -96,7 +101,10 @@ export default {
     ctx.waitUntil(
       runPoll(env).then(
         (s) => console.log("poll", JSON.stringify({ pins: s.pincodes, checks: s.checks, alerts: s.alerts, errors: s.errors.length })),
-        (e) => console.error("poll failed", e && e.stack ? e.stack : e),
+        (e) => {
+          console.error("poll failed", e && e.stack ? e.stack : e);
+          return logEvent(env, { level: "error", kind: "poll_error", actor: "system", detail: `poll crashed: ${e && e.message ? e.message : e}` });
+        },
       ),
     );
   },

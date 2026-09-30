@@ -10,6 +10,12 @@ directory = "public"
 binding = "ASSETS"
 run_worker_first = true   # so every page also gets the security headers
 
+# Cloudflare Workers Logs: every console line, searchable in the dashboard (free tier keeps
+# 3 days). The admin Monitor tab keeps its own 7 to 30 days in D1.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [triggers]
 crons = ["* * * * *"]
 
@@ -29,6 +35,8 @@ simple = { limit = 20, period = 60 }
 MAX_USERS = "100"
 MAX_WATCHES_PER_USER = "10"
 MAX_PINCODES_PER_USER = "3"
+# This account can never be disabled, demoted or deleted, by anyone.
+OWNER_USERNAME = "namitjain"
 # Cloudflare Turnstile human check on sign-up. The matching TURNSTILE_SECRET is a
 # secret (wrangler secret put TURNSTILE_SECRET); without it the check is off.
 TURNSTILE_SITE_KEY = "0x4AAAAAAFKOxvHLEErz8Yjz"

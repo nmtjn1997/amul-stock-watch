@@ -138,3 +138,24 @@ details.more summary { cursor: pointer; font-weight: 650; }
 .card.warn { border-color: var(--warn); background: var(--warnbg); }
 .card.warn .btn { margin-top: 12px; }
 .devices { margin: 10px 0; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.seg button { min-height: 38px; padding: 7px 14px; border-radius: 999px; background: var(--panel); }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.chip { min-height: 34px; padding: 5px 12px; border-radius: 999px; font-size: 14px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.dotstat { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: var(--muted); vertical-align: middle; }
+.dotstat.big { width: 14px; height: 14px; margin: 0 4px 0 0; }
+.dotstat.ok { background: var(--ok); } .dotstat.warn { background: var(--warn); } .dotstat.bad { background: var(--bad); }
+.card.health.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.card.health.late { border-color: var(--warn); } .card.health.failing, .card.health.down { border-color: var(--bad); }
+.tile.warn b { color: var(--warn); } .tile.bad b { color: var(--bad); }
+.chartbox { margin: 10px 0 14px; }
+.chart-head { display: flex; justify-content: space-between; font-size: 14px; font-weight: 650; margin-bottom: 4px; }
+.chart { width: 100%; height: 90px; display: block; background: var(--panel2); border-radius: 10px; }
+.errtext { color: var(--bad); overflow-wrap: anywhere; }
+.lvl { font-size: 11.5px; font-weight: 800; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; background: var(--panel2); color: var(--muted); align-self: flex-start; margin-top: 2px; }
+.lvl.warn { background: var(--warnbg); color: var(--warn); } .lvl.error { background: var(--badbg); color: var(--bad); }
+.detail { overflow-wrap: anywhere; }
+#evsearch { margin-bottom: 8px; }
+.chart-foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 3px; }

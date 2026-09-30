@@ -3,7 +3,8 @@
 // the role on the server; the UI hiding a tab is never the protection.
 
 import { AmulClient } from "./amul.js";
-import { changePassword, deleteAccount, googleEnabled } from "./auth.js";
+import { changePassword, deleteAccount, googleEnabled, ownerName } from "./auth.js";
+import { logEvent } from "./log.js";
 import { deliver } from "./notify.js";
 import { validSubscription } from "./webpush.js";
 import { zoneFor } from "./poll.js";
@@ -77,13 +78,16 @@ export async function checkPincode(env, user, pincode) {
   const cached = await env.DB.prepare("SELECT valid, store FROM zones WHERE pincode = ?").bind(pincode).first();
   if (cached) return json({ pincode, valid: Boolean(cached.valid), region: cached.store });
   if (!(await allow(env.DB, `pin-check:${user.id}`, 20, 3600))) fail(429, "Too many pincode checks. Try again in an hour.");
-  const client = new AmulClient(env.DB, { left: 4 });
+  const budget = { left: 4 };
+  const client = new AmulClient(env.DB, budget);
   let zone;
   try {
     zone = await zoneFor(env, client, pincode);
   } catch (e) {
+    await logEvent(env, { level: "error", kind: "pincode_check", user, detail: `${pincode}: ${e.message}` });
     fail(503, "Could not reach Amul just now. Try again in a minute.");
   }
+  await logEvent(env, { kind: "pincode_check", user, detail: `${pincode}: ${zone.valid ? zone.store : "not served"} (${4 - budget.left} Amul requests)` });
   return json({ pincode, valid: Boolean(zone.valid), region: zone.store });
 }
 
@@ -125,6 +129,7 @@ export async function addWatches(env, user, body) {
     if (!res.meta.changes) fail(400, `You can have up to ${max} alerts. Remove one to add another.`);
     added++;
   }
+  await logEvent(env, { kind: "watch_add", user, detail: `${pincode}: ${aliases.join(", ")}` });
   return json({ ok: true, added });
 }
 
@@ -132,12 +137,14 @@ export async function updateWatch(env, user, id, body) {
   const res = await env.DB.prepare("UPDATE watches SET enabled = ? WHERE id = ? AND user_id = ?")
     .bind(body.enabled ? 1 : 0, Number(id), user.id).run();
   if (!res.meta.changes) fail(404, "No such alert.");
+  await logEvent(env, { kind: "watch_toggle", user, detail: `alert ${id} ${body.enabled ? "on" : "paused"}` });
   return json({ ok: true });
 }
 
 export async function deleteWatch(env, user, id) {
   const res = await env.DB.prepare("DELETE FROM watches WHERE id = ? AND user_id = ?").bind(Number(id), user.id).run();
   if (!res.meta.changes) fail(404, "No such alert.");
+  await logEvent(env, { kind: "watch_delete", user, detail: `alert ${id}` });
   return json({ ok: true });
 }
 
@@ -159,6 +166,7 @@ export async function updateSettings(env, user, body) {
     if (!name) fail(400, "The name cannot be empty.");
     await env.DB.prepare("UPDATE users SET display_name = ? WHERE id = ?").bind(name, user.id).run();
   }
+  await logEvent(env, { kind: "settings", user, detail: Object.keys(body).join(", ") });
   return json({ ok: true });
 }
 
@@ -176,6 +184,7 @@ export async function addDevice(env, user, body) {
     `INSERT INTO push_subs (user_id, endpoint, p256dh, auth, label, created_at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, label = excluded.label`,
   ).bind(user.id, sub.endpoint, sub.p256dh, sub.auth, label, now()).run();
+  await logEvent(env, { kind: "device_add", user, detail: `${label} via ${new URL(sub.endpoint).hostname}` });
   return json({ ok: true });
 }
 
@@ -183,6 +192,7 @@ export async function removeDevice(env, user, body) {
   const res = body.endpoint
     ? await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?").bind(String(body.endpoint), user.id).run()
     : await env.DB.prepare("DELETE FROM push_subs WHERE id = ? AND user_id = ?").bind(Number(body.id), user.id).run();
+  if (res.meta.changes) await logEvent(env, { kind: "device_remove", user, detail: "notifications turned off on a device" });
   return json({ ok: true, removed: res.meta.changes });
 }
 
@@ -196,6 +206,7 @@ export async function sendTest(env, user) {
   });
   await env.DB.prepare("INSERT INTO alert_log (user_id, ts, kind, product, pincodes, result) VALUES (?, ?, 'test', 'test', '', ?)")
     .bind(user.id, now(), res.detail).run();
+  await logEvent(env, { level: res.ok ? "info" : "warn", kind: "test_sent", user, detail: res.detail });
   return json({ ok: res.ok, detail: res.detail });
 }
 
@@ -231,6 +242,7 @@ export async function adminOverview(env, user) {
     "SELECT a.ts, a.kind, a.product, a.pincodes, a.result, u.display_name FROM alert_log a JOIN users u ON u.id = a.user_id ORDER BY a.ts DESC LIMIT 25",
   ).all()).results;
   return json({
+    owner: ownerName(env),
     users: users.results,
     counts: { users: users.results.length, max_users: Number(env.MAX_USERS || 100), watches: watches.results[0].n, pairs: pairs.results[0].n, alerts_24h: alerts24.results[0].n },
     products,
@@ -243,13 +255,19 @@ export async function adminUser(env, user, id, body) {
   requireAdmin(user);
   const target = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(Number(id)).first();
   if (!target) fail(404, "No such user.");
-  if (target.id === user.id && (body.disabled || body.role === "user" || body.delete)) fail(400, "You cannot lock yourself out.");
-  if (target.role === "admin" && (body.disabled || body.role === "user" || body.delete)) {
+  const removing = Boolean(body.disabled || body.role === "user" || body.delete);
+  // The owner account is fixed: no admin, including the owner, can remove it.
+  if (target.username === ownerName(env) && removing) fail(403, "The owner account cannot be disabled, demoted or deleted.");
+  if (target.id === user.id && removing) fail(400, "You cannot lock yourself out.");
+  // Only removing an *active* admin can leave the service with none.
+  if (target.role === "admin" && !target.disabled && removing) {
     const admins = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").first();
     if (admins.n <= 1) fail(400, "That is the last active admin.");
   }
+  const who = target.username || target.email || target.display_name;
   if (body.delete) {
     await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(target.id).run();
+    await logEvent(env, { kind: "admin", user, detail: `deleted ${who}` });
     return json({ ok: true });
   }
   if ("disabled" in body) {
@@ -261,6 +279,7 @@ export async function adminUser(env, user, id, body) {
   if (body.role === "admin" || body.role === "user") {
     await env.DB.prepare("UPDATE users SET role = ? WHERE id = ?").bind(body.role, target.id).run();
   }
+  await logEvent(env, { kind: "admin", user, detail: `${who}: ${"disabled" in body ? (body.disabled ? "disabled" : "enabled") : `role ${body.role}`}` });
   return json({ ok: true });
 }
 
@@ -271,6 +290,7 @@ export async function adminProduct(env, user, body) {
   if (!ALIAS_RE.test(alias)) fail(400, "Paste the product URL from shop.amul.com.");
   if (body.remove) {
     await env.DB.prepare("UPDATE products SET enabled = 0 WHERE alias = ?").bind(alias).run();
+    await logEvent(env, { kind: "admin", user, detail: `hid product ${alias}` });
     return json({ ok: true });
   }
   if (body.move === "up" || body.move === "down") {
@@ -289,5 +309,91 @@ export async function adminProduct(env, user, body) {
     `INSERT INTO products (alias, label, enabled, created_at, sort) VALUES (?, ?, 1, ?, 1000)
      ON CONFLICT(alias) DO UPDATE SET label = excluded.label, enabled = 1`,
   ).bind(alias, label, now()).run();
+  await logEvent(env, { kind: "admin", user, detail: `added or showed product ${alias}` });
   return json({ ok: true, alias });
+}
+
+// ------------------------------------------------------------------ monitoring
+
+export async function adminMonitor(env, user) {
+  requireAdmin(user);
+  const db = env.DB;
+  const t = now();
+  const sums = (since) => db.prepare(
+    `SELECT COUNT(*) AS runs, COALESCE(SUM(amul_requests),0) AS amul, COALESCE(SUM(checks),0) AS checks,
+            COALESCE(SUM(alerts),0) AS alerts, COALESCE(SUM(notify_requests),0) AS notify,
+            COALESCE(SUM(CASE WHEN errors != '[]' THEN 1 ELSE 0 END),0) AS error_runs,
+            COALESCE(ROUND(AVG(ms)),0) AS avg_ms, COALESCE(MAX(ms),0) AS max_ms, COALESCE(MAX(units_total),0) AS max_units
+     FROM runs WHERE ts > ?`).bind(since);
+  const [h1, h24, hourly, daily, recent, kinds, active, last] = await db.batch([
+    sums(t - 3600),
+    sums(t - 86400),
+    db.prepare(
+      `SELECT ts / 3600 AS hour, SUM(amul_requests) AS amul, SUM(checks) AS checks, SUM(alerts) AS alerts,
+              SUM(CASE WHEN errors != '[]' THEN 1 ELSE 0 END) AS error_runs, COUNT(*) AS runs
+       FROM runs WHERE ts > ? GROUP BY hour ORDER BY hour`).bind(t - 86400),
+    db.prepare(
+      `SELECT ts / 86400 AS day, SUM(amul_requests) AS amul, SUM(alerts) AS alerts, COUNT(*) AS runs
+       FROM runs GROUP BY day ORDER BY day`),
+    db.prepare("SELECT * FROM runs ORDER BY ts DESC LIMIT 40"),
+    db.prepare("SELECT kind, level, COUNT(*) AS n FROM events WHERE ts > ? GROUP BY kind, level").bind(t - 86400),
+    db.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM events WHERE ts > ? AND user_id IS NOT NULL AND kind NOT IN ('login_fail','login_blocked','alert_sent','alert_failed')").bind(t - 86400),
+    db.prepare("SELECT value FROM meta WHERE key = 'last_run'"),
+  ]);
+  let lastRun = null;
+  try { lastRun = last.results[0] ? JSON.parse(last.results[0].value) : null; } catch { lastRun = null; }
+  const age = lastRun ? t - lastRun.ts : null;
+  const recentRuns = recent.results;
+  const failing = recentRuns.slice(0, 3).length === 3 && recentRuns.slice(0, 3).every((r) => r.errors !== "[]" && !r.checks && r.units_total > 0);
+  const status = age === null ? "unknown" : age > 300 ? "down" : failing ? "failing" : age > 150 ? "late" : "ok";
+  const byKind = {};
+  for (const k of kinds.results) byKind[k.kind] = (byKind[k.kind] || 0) + k.n;
+  const errors24 = kinds.results.filter((k) => k.level === "error").reduce((n, k) => n + k.n, 0);
+  return json({
+    now: t,
+    health: { status, last_run_age: age, last_run: lastRun },
+    last_hour: h1.results[0],
+    last_day: h24.results[0],
+    hourly: hourly.results,
+    daily: daily.results,
+    runs: recentRuns.map((r) => ({ ...r, errors: JSON.parse(r.errors || "[]") })),
+    events_24h: byKind,
+    errors_24h: errors24,
+    active_users_24h: active.results[0].n,
+    limits: {
+      amul_per_run: 46,
+      runs_per_day: 1440,
+      max_users: Number(env.MAX_USERS || 100),
+    },
+    dashboard: "https://dash.cloudflare.com/?to=/:account/workers/services/view/amul/production/observability/logs",
+  });
+}
+
+const EVENT_GROUPS = {
+  errors: "level IN ('warn','error')",
+  alerts: "kind IN ('alert_sent','alert_failed','test_sent')",
+  signins: "kind IN ('signup','login','login_fail','login_blocked','password_change','account_delete')",
+  changes: "kind IN ('watch_add','watch_delete','watch_toggle','settings','device_add','device_remove','pincode_check')",
+  admin: "kind = 'admin'",
+  system: "kind IN ('poll_error','error')",
+};
+
+export async function adminEvents(env, user, q) {
+  requireAdmin(user);
+  const where = [];
+  const binds = [];
+  if (q.group && EVENT_GROUPS[q.group]) where.push(EVENT_GROUPS[q.group]);
+  if (q.search) {
+    where.push("(actor LIKE ? OR detail LIKE ? OR kind LIKE ?)");
+    const like = `%${String(q.search).slice(0, 60).replace(/[%_]/g, "")}%`;
+    binds.push(like, like, like);
+  }
+  if (q.before) {
+    where.push("id < ?");
+    binds.push(Number(q.before));
+  }
+  const rows = (await env.DB.prepare(
+    `SELECT id, ts, level, kind, user_id, actor, detail, net FROM events ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id DESC LIMIT 50`,
+  ).bind(...binds).all()).results;
+  return json({ items: rows, more: rows.length === 50 });
 }

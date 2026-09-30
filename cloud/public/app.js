@@ -529,7 +529,19 @@ async function settingsView() {
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),
         h("button", { onclick: async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); } }, "Get a new topic"))),
     h("div", { class: "card" }, h("h2", {}, "Also send to Discord or Slack (optional)"),
-      h("p", { class: "small muted" }, u.webhook ? `Connected to ${u.webhook}.` : "Paste an incoming webhook URL to get alerts in a channel too."),
+      h("p", { class: "small muted" }, u.webhook ? `Connected to ${u.webhook}. Use "Send a test" above to check it.` : "Paste an incoming webhook URL to get alerts in a channel too."),
+      h("details", { class: "more" }, h("summary", { class: "small" }, "How do I get a Discord webhook URL?"),
+        h("ol", { class: "how small" },
+          h("li", {}, "In Discord, open the server, then ", h("b", {}, "Server Settings > Integrations > Webhooks"), " (you need Manage Webhooks permission)."),
+          h("li", {}, "Click ", h("b", {}, "New Webhook"), ", pick the channel, then ", h("b", {}, "Copy Webhook URL"), "."),
+          h("li", {}, "Paste it below and press Save. It starts with https://discord.com/api/webhooks/.")),
+        h("a", { href: "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks", target: "_blank", rel: "noopener" }, "Discord's guide")),
+      h("details", { class: "more" }, h("summary", { class: "small" }, "How do I get a Slack webhook URL?"),
+        h("ol", { class: "how small" },
+          h("li", {}, "Open ", h("a", { href: "https://api.slack.com/apps?new_app=1", target: "_blank", rel: "noopener" }, "api.slack.com/apps"), " and create an app ", h("b", {}, "From scratch"), " in your workspace."),
+          h("li", {}, "In the app, open ", h("b", {}, "Incoming Webhooks"), ", switch it on, then ", h("b", {}, "Add New Webhook to Workspace"), " and pick a channel."),
+          h("li", {}, "Copy the URL (it starts with https://hooks.slack.com/services/) and paste it below.")),
+        h("a", { href: "https://api.slack.com/messaging/webhooks", target: "_blank", rel: "noopener" }, "Slack's guide")),
       h("form", { onsubmit: async (e) => {
         e.preventDefault(); hookErr.textContent = "";
         try { await api("/api/settings", { webhook: hook.value.trim() }); hook.value = ""; await loadMe(); render(); toast("Saved"); }
@@ -565,54 +577,208 @@ function deleteSheet() {
 
 // ------------------------------------------------------------------ admin
 
+const adminState = { section: "monitor", group: "", search: "", events: [], more: false };
+
+function svgEl(tag, attrs) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+}
+
+// Bars for a series over time. `rows` = [{ key, value, title }]; empty slots are drawn flat.
+function barChart(rows, { height = 90, color = "var(--accent)", label = "", from = "", to = "" } = {}) {
+  const peak = Math.max(0, ...rows.map((r) => r.value));
+  const max = Math.max(1, peak);
+  const w = 100 / Math.max(rows.length, 1);
+  const svg = svgEl("svg", { viewBox: `0 0 100 ${height}`, preserveAspectRatio: "none", class: "chart", role: "img", "aria-label": label });
+  rows.forEach((r, i) => {
+    const bh = r.value ? Math.max(1.5, (r.value / max) * (height - 4)) : 0.8;
+    const rect = svgEl("rect", { x: String(i * w + w * 0.15), y: String(height - bh), width: String(w * 0.7), height: String(bh), rx: "0.6",
+      fill: r.value ? color : "var(--line)" });
+    const t = svgEl("title", {});
+    t.textContent = r.title;
+    rect.append(t);
+    svg.append(rect);
+  });
+  return h("div", { class: "chartbox" },
+    h("div", { class: "chart-head" }, h("span", {}, label), h("span", { class: "muted small" }, peak ? `peak ${peak}` : "none")), svg,
+    from || to ? h("div", { class: "chart-foot" }, h("span", {}, from), h("span", {}, to)) : null);
+}
+
+function hourlySeries(hourly, now, field) {
+  const byHour = new Map(hourly.map((r) => [r.hour, r]));
+  const cur = Math.floor(now / 3600);
+  const out = [];
+  for (let hh = cur - 23; hh <= cur; hh++) {
+    const r = byHour.get(hh);
+    const v = r ? r[field] || 0 : 0;
+    const d = new Date(hh * 3600 * 1000);
+    out.push({ key: hh, value: v, title: `${d.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })}: ${v}` });
+  }
+  return out;
+}
+
+function dailySeries(daily, now) {
+  const byDay = new Map(daily.map((r) => [r.day, r]));
+  const today = Math.floor(now / 86400);
+  const out = [];
+  for (let d = today - 6; d <= today; d++) {
+    const r = byDay.get(d);
+    out.push({ key: d, value: r ? r.amul : 0, title: `${new Date(d * 86400000).toLocaleDateString()}: ${r ? r.amul : 0} Amul requests, ${r ? r.alerts : 0} alerts` });
+  }
+  return out;
+}
+
 async function adminView() {
-  show(h("div", { class: "card" }, "Loading..."));
-  let d;
-  try { d = await api("/api/admin"); } catch (x) { show(h("div", { class: "card" }, x.message)); return; }
-  const c = d.counts, run = d.last_run;
+  const sections = [["monitor", "Monitor"], ["people", "People"], ["products", "Products"], ["activity", "Activity"]];
+  const nav = h("div", { class: "seg", role: "tablist" }, sections.map(([k, label]) =>
+    h("button", { type: "button", role: "tab", "aria-selected": String(adminState.section === k), class: adminState.section === k ? "on" : "",
+      onclick: () => { adminState.section = k; adminView(); } }, label)));
+  const body = h("div", {}, h("div", { class: "card" }, "Loading..."));
+  show(nav, body);
+  try {
+    if (adminState.section === "monitor") body.replaceChildren(...(await monitorSection()));
+    else if (adminState.section === "activity") body.replaceChildren(...(await activitySection()));
+    else body.replaceChildren(...(await peopleProductsSection(adminState.section)));
+  } catch (x) {
+    body.replaceChildren(h("div", { class: "card warn" }, x.message));
+  }
+}
+
+async function monitorSection() {
+  const m = await api("/api/admin/monitor");
+  const st = m.health.status;
+  const label = { ok: "Healthy", late: "Running late", failing: "Failing", down: "Not running", unknown: "No runs yet" }[st];
+  const age = m.health.last_run_age;
+  const lr = m.health.last_run || {};
+  const d = m.last_day, hr = m.last_hour;
+  const ev = m.events_24h;
+  const tile = (value, text, cls = "") => h("div", { class: `tile ${cls}` }, h("b", {}, String(value)), h("span", {}, text));
+  const amulPerMin = hr.runs ? Math.round(hr.amul / hr.runs) : 0;
+  const runsRows = m.runs.map((r) => h("div", { class: "li run" },
+    h("div", { class: "main" },
+      h("div", {}, h("span", { class: `dotstat ${r.errors.length ? (r.checks ? "warn" : "bad") : "ok"}` }), new Date(r.ts * 1000).toLocaleTimeString(),
+        h("span", { class: "muted small" }, `  ${r.pincodes}/${r.units_total} groups, ${r.checks} checks, ${r.amul_requests} Amul requests, ${r.alerts} alerts, ${r.ms} ms`)),
+      r.errors.length ? h("div", { class: "small errtext" }, r.errors.slice(0, 3).join("; ")) : null)));
+  return [
+    h("div", { class: `card health ${st}` },
+      h("div", { class: "row" },
+        h("span", { class: `dotstat big ${st === "ok" ? "ok" : st === "late" ? "warn" : "bad"}` }),
+        h("div", { class: "grow" }, h("b", {}, `Poller: ${label}`),
+          h("div", { class: "small muted" }, age === null ? "The every-minute check has not run yet." :
+            `Last run ${ago(m.now - age)}: ${lr.pincodes ?? 0} of ${lr.pincodes_total ?? 0} groups, ${lr.checks ?? 0} product checks, ${lr.amul_requests ?? 0} Amul requests.`)),
+        h("a", { class: "btn ghost", href: m.dashboard, target: "_blank", rel: "noopener" }, "Raw logs"))),
+    h("div", { class: "card" }, h("h2", {}, "Last 24 hours"),
+      h("div", { class: "kv" },
+        tile(d.amul, "requests to Amul"),
+        tile(`${amulPerMin}/min`, "Amul load, last hour"),
+        tile(d.checks, "product checks"),
+        tile(d.alerts, "restock alerts sent"),
+        tile(ev.alert_failed || 0, "alerts not delivered", ev.alert_failed ? "warn" : ""),
+        tile(m.errors_24h, "errors", m.errors_24h ? "bad" : ""),
+        tile(m.active_users_24h, "active people"),
+        tile(ev.signup || 0, "new sign-ups"),
+        tile(ev.login_fail || 0, "failed logins", (ev.login_fail || 0) > 20 ? "warn" : ""),
+        tile(`${d.avg_ms} ms`, `avg run, max ${d.max_ms} ms`),
+        tile(`${d.runs}/1440`, "runs completed"),
+        tile(d.max_units, "pincode groups waiting")),
+      h("p", { class: "small muted" }, `Budget: at most ${m.limits.amul_per_run} Amul requests per run, one run a minute, shared by everyone. Each pincode and product is read once for all the people watching it.`)),
+    h("div", { class: "card" }, h("h2", {}, "Per hour"),
+      barChart(hourlySeries(m.hourly, m.now, "amul"), { label: "Amul requests", from: "24 h ago", to: "now" }),
+      barChart(hourlySeries(m.hourly, m.now, "checks"), { label: "Product checks", color: "var(--ok)", from: "24 h ago", to: "now" }),
+      barChart(hourlySeries(m.hourly, m.now, "alerts"), { label: "Alerts sent", color: "#d68a00", from: "24 h ago", to: "now" }),
+      barChart(hourlySeries(m.hourly, m.now, "error_runs"), { label: "Runs with errors", color: "var(--bad)", from: "24 h ago", to: "now" })),
+    h("div", { class: "card" }, h("h2", {}, "Last 7 days"),
+      barChart(dailySeries(m.daily, m.now), { label: "Amul requests per day", from: "7 days ago", to: "today" })),
+    h("div", { class: "card" }, h("h2", {}, "Recent runs"), h("div", { class: "list" }, runsRows.length ? runsRows : h("div", { class: "muted small" }, "No runs yet."))),
+  ];
+}
+
+const KIND_LABEL = {
+  signup: "Signed up", login: "Logged in", login_fail: "Login failed", login_blocked: "Login blocked", password_change: "Changed password",
+  account_delete: "Deleted account", watch_add: "Added alert", watch_delete: "Deleted alert", watch_toggle: "Paused or resumed alert",
+  settings: "Changed settings", device_add: "Turned on notifications", device_remove: "Removed a device", pincode_check: "Checked a pincode",
+  test_sent: "Test message", alert_sent: "Alert sent", alert_failed: "Alert not delivered", admin: "Admin action", poll_error: "Poller error", error: "Server error",
+};
+
+async function activitySection() {
+  const load = async (reset) => {
+    const q = new URLSearchParams();
+    if (adminState.group) q.set("group", adminState.group);
+    if (adminState.search) q.set("search", adminState.search);
+    if (!reset && adminState.events.length) q.set("before", adminState.events[adminState.events.length - 1].id);
+    const r = await api(`/api/admin/events?${q}`);
+    adminState.events = reset ? r.items : adminState.events.concat(r.items);
+    adminState.more = r.more;
+  };
+  await load(true);
+  const list = h("div", { class: "list" });
+  const moreBtn = h("button", { class: "ghost wide", onclick: async () => { await load(false); draw(); } }, "Load older");
+  function draw() {
+    list.replaceChildren(...(adminState.events.length ? adminState.events.map((e) => h("div", { class: "li" },
+      h("span", { class: `lvl ${e.level}` }, e.level),
+      h("div", { class: "main" },
+        h("div", {}, h("b", {}, KIND_LABEL[e.kind] || e.kind), " ", h("span", { class: "muted small" }, e.actor || "")),
+        h("div", { class: "small muted" }, `${new Date(e.ts * 1000).toLocaleString()}${e.net ? `  network ${e.net}` : ""}`),
+        e.detail ? h("div", { class: "small detail" }, e.detail) : null))) : [h("div", { class: "muted small" }, "Nothing matches.")]));
+    moreBtn.hidden = !adminState.more;
+  }
+  draw();
+  const groups = [["", "All"], ["errors", "Problems"], ["alerts", "Alerts"], ["signins", "Sign-ins"], ["changes", "Changes"], ["admin", "Admin"], ["system", "System"]];
+  const search = h("input", { type: "text", placeholder: "Search user, product, pincode...", value: adminState.search, id: "evsearch" });
+  let timer;
+  search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(async () => { adminState.search = search.value.trim(); await load(true); draw(); }, 300); });
+  return [
+    h("div", { class: "card" },
+      h("div", { class: "chips" }, groups.map(([k, label]) => h("button", { type: "button", class: adminState.group === k ? "chip on" : "chip",
+        onclick: async () => { adminState.group = k; adminView(); } }, label))),
+      search, list, moreBtn,
+      h("p", { class: "small muted" }, "Kept for 30 days. \"Network\" is a one-way hash that changes daily: it shows when many events come from one place, without storing IP addresses.")),
+  ];
+}
+
+async function peopleProductsSection(which) {
+  const d = await api("/api/admin");
+  const c = d.counts;
   const act = (id, body, confirmText) => async () => {
     if (confirmText && !confirm(confirmText)) return;
-    try { await api(`/api/admin/users/${id}`, body); toast("Done"); adminView(); } catch (x) { toast(x.message, true); }
+    try { await api(`/api/admin/users/${id}`, body); toast("Done"); adminView(); }
+    catch (x) { alert(x.message); }
   };
-  const users = d.users.map((u) => h("div", { class: "li" },
-    h("div", { class: "main" },
-      h("div", {}, h("b", {}, u.display_name), " ", h("span", { class: "muted small" }, u.username ? `@${u.username}` : u.email || ""), " ",
-        u.role === "admin" ? h("span", { class: "pill admin" }, "admin") : null, u.disabled ? h("span", { class: "pill off" }, "disabled") : null),
-      h("div", { class: "muted small" }, `${u.watches} alerts, joined ${ago(u.created_at)}, last login ${ago(u.last_login_at)}`)),
-    u.id === ME.user.id ? h("span", { class: "muted small" }, "you") : h("div", { class: "row" },
-      h("button", { onclick: act(u.id, { disabled: !u.disabled }) }, u.disabled ? "Enable" : "Disable"),
-      h("button", { class: "ghost", onclick: act(u.id, { role: u.role === "admin" ? "user" : "admin" }, u.role === "admin" ? null : `Make ${u.display_name} an admin? Admins see and manage everyone.`) }, u.role === "admin" ? "Remove admin" : "Make admin"),
-      h("button", { class: "danger", onclick: act(u.id, { delete: true }, `Delete ${u.display_name} and all their alerts?`) }, "Delete"))));
+  if (which === "people") {
+    const users = d.users.map((u) => {
+      const owner = u.username === d.owner;
+      return h("div", { class: "li" },
+        h("div", { class: "main" },
+          h("div", {}, h("b", {}, u.display_name), " ", h("span", { class: "muted small" }, u.username ? `@${u.username}` : u.email || ""), " ",
+            owner ? h("span", { class: "pill admin" }, "owner") : u.role === "admin" ? h("span", { class: "pill admin" }, "admin") : null,
+            u.disabled ? h("span", { class: "pill off" }, "disabled") : null),
+          h("div", { class: "muted small" }, `${u.watches} alerts, joined ${ago(u.created_at)}, last login ${ago(u.last_login_at)}`)),
+        owner || u.id === ME.user.id ? h("span", { class: "muted small" }, u.id === ME.user.id ? "you" : "protected") : h("div", { class: "row" },
+          h("button", { onclick: act(u.id, { disabled: !u.disabled }) }, u.disabled ? "Enable" : "Disable"),
+          h("button", { class: "ghost", onclick: act(u.id, { role: u.role === "admin" ? "user" : "admin" }, u.role === "admin" ? null : `Make ${u.display_name} an admin? Admins see and manage everyone.`) }, u.role === "admin" ? "Remove admin" : "Make admin"),
+          h("button", { class: "danger", onclick: act(u.id, { delete: true }, `Delete ${u.display_name} and all their alerts? This cannot be undone.`) }, "Delete")));
+    });
+    return [h("div", { class: "card" }, h("h2", {}, `People (${c.users} of ${c.max_users})`),
+      h("p", { class: "small muted" }, `${c.watches} alerts in total, ${c.pairs} distinct pincode and product checks.`), h("div", { class: "list" }, users))];
+  }
   const purl = h("input", { type: "url", placeholder: "https://shop.amul.com/en/product/...", id: "purl" });
   const plabel = h("input", { type: "text", placeholder: "Short name people will see", id: "plabel", maxlength: "80" });
   const products = d.products.map((p) => h("div", { class: "li" },
     h("div", { class: "main" }, h("div", {}, p.label, " ", p.enabled ? null : h("span", { class: "pill off" }, "hidden")),
       h("div", { class: "muted small" }, `${p.watches} watching`)),
     h("div", { class: "row" },
-      h("button", { class: "ghost", "aria-label": `Move ${p.label} up`, title: "Show earlier", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "up" }); adminView(); } }, "\u2191"),
-      h("button", { class: "ghost", "aria-label": `Move ${p.label} down`, title: "Show later", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "down" }); adminView(); } }, "\u2193")),
-    p.enabled ? h("button", { class: "ghost", onclick: async () => { await api("/api/admin/products", { alias: p.alias, remove: true }); adminView(); } }, "Hide")
-      : h("button", { onclick: async () => { await api("/api/admin/products", { alias: p.alias, label: p.label }); adminView(); } }, "Show")));
-  show(
-    h("div", { class: "card" }, h("h2", {}, "Overview"),
-      h("div", { class: "kv" },
-        h("div", { class: "tile" }, h("b", {}, `${c.users}/${c.max_users}`), h("span", {}, "people")),
-        h("div", { class: "tile" }, h("b", {}, c.watches), h("span", {}, "alerts")),
-        h("div", { class: "tile" }, h("b", {}, c.pairs), h("span", {}, "pincode x product checks")),
-        h("div", { class: "tile" }, h("b", {}, c.alerts_24h), h("span", {}, "alerts sent in 24 h"))),
-      h("p", { class: "small muted" }, run ? `Last check ${ago(run.ts)}: ${run.pincodes} of ${run.pincodes_total} pincodes, ${run.checks} products, ${run.alerts} alerts${run.errors.length ? `, errors: ${run.errors.join("; ")}` : ""}.` : "No check has run yet.")),
-    h("div", { class: "card" }, h("h2", {}, `People (${c.users})`), h("div", { class: "list" }, users)),
-    h("div", { class: "card" }, h("h2", {}, "Products people can pick"), h("p", { class: "small muted" }, "Shown in this order. Use the arrows to reorder."), h("div", { class: "list" }, products),
-      h("form", { onsubmit: async (e) => {
-        e.preventDefault();
-        try { await api("/api/admin/products", { alias: purl.value, label: plabel.value }); purl.value = plabel.value = ""; toast("Added"); adminView(); } catch (x) { toast(x.message, true); }
-      } }, h("label", { class: "f", for: "purl" }, "Add a product"), purl, h("div", { style: null }, h("label", { class: "f", for: "plabel" }, "Name"), plabel),
-        h("button", { class: "primary wide", type: "submit" }, "Add product"))),
-    h("div", { class: "card" }, h("h2", {}, "Recent alerts"), h("div", { class: "list" },
-      d.recent.length ? d.recent.map((r) => h("div", { class: "li" }, h("div", { class: "main" },
-        h("div", {}, `${r.display_name}: ${r.kind === "test" ? "test message" : `${r.product} at ${r.pincodes}`}`),
-        h("div", { class: "muted small" }, `${ago(r.ts)}: ${r.result}`)))) : h("div", { class: "muted small" }, "None yet."))),
-  );
+      h("button", { class: "ghost", "aria-label": `Move ${p.label} up`, title: "Show earlier", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "up" }); adminView(); } }, "↑"),
+      h("button", { class: "ghost", "aria-label": `Move ${p.label} down`, title: "Show later", onclick: async () => { await api("/api/admin/products", { alias: p.alias, move: "down" }); adminView(); } }, "↓"),
+      p.enabled ? h("button", { class: "ghost", onclick: async () => { await api("/api/admin/products", { alias: p.alias, remove: true }); adminView(); } }, "Hide")
+        : h("button", { onclick: async () => { await api("/api/admin/products", { alias: p.alias, label: p.label }); adminView(); } }, "Show"))));
+  return [h("div", { class: "card" }, h("h2", {}, "Products people can pick"), h("p", { class: "small muted" }, "Shown in this order. Use the arrows to reorder."),
+    h("div", { class: "list" }, products),
+    h("form", { onsubmit: async (e) => {
+      e.preventDefault();
+      try { await api("/api/admin/products", { alias: purl.value, label: plabel.value }); purl.value = plabel.value = ""; toast("Added"); adminView(); } catch (x) { toast(x.message, true); }
+    } }, h("label", { class: "f", for: "purl" }, "Add a product"), purl, h("label", { class: "f", for: "plabel" }, "Name"), plabel,
+      h("button", { class: "primary wide", type: "submit" }, "Add product")))];
 }
 
 // ------------------------------------------------------------------ router

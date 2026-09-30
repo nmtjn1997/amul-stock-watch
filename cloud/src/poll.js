@@ -9,6 +9,7 @@
 
 import { AmulClient, AmulError, parseStock } from "./amul.js";
 import { deliver } from "./notify.js";
+import { logEvent } from "./log.js";
 import { allow, now } from "./util.js";
 
 const BUDGET = 46; // of 50, leaving room for the session bootstrap retry
@@ -29,6 +30,13 @@ async function getMeta(db, key, fallback) {
 async function setMeta(db, key, value) {
   await db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .bind(key, JSON.stringify(value)).run();
+}
+
+async function recordRun(db, s, amulRequests, notifyRequests, ms) {
+  await db.prepare(
+    `INSERT INTO runs (ts, units_total, pincodes, checks, amul_requests, notify_requests, alerts, errors, ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(s.ts, s.pincodes_total, s.pincodes, s.checks, amulRequests, notifyRequests, s.alerts, JSON.stringify(s.errors.slice(0, 10)), ms).run();
 }
 
 export async function zoneFor(env, client, pincode) {
@@ -80,6 +88,7 @@ export async function runPoll(env) {
   const summary = { ts: started, pincodes_total: pins.length, pairs_total: pairs.length, pincodes: 0, checks: 0, alerts: 0, errors: [] };
   if (!pins.length) {
     await setMeta(db, "last_run", summary);
+    await recordRun(db, summary, 0, 0, Date.now() - started * 1000);
     return summary;
   }
 
@@ -124,6 +133,8 @@ export async function runPoll(env) {
   }
   await setMeta(db, "poll_cursor", cursor);
   await client.save();
+  const amulRequests = BUDGET - budget.left;
+  let notifyRequests = 0;
 
   // Alerts: one message per person per product, listing every pincode that came back.
   const pending = new Map();
@@ -159,6 +170,13 @@ export async function runPoll(env) {
     };
     const res = await deliver(env, user, alert);
     budget.left -= res.used;
+    notifyRequests += res.used;
+    await logEvent(env, {
+      level: res.ok ? "info" : "warn",
+      kind: res.ok ? "alert_sent" : "alert_failed",
+      user,
+      detail: `${p.label} at ${p.pins.join(", ")}: ${res.detail}`,
+    });
     const stmts = [
       db.prepare("INSERT INTO alert_log (user_id, ts, kind, product, pincodes, result) VALUES (?, ?, 'stock', ?, ?, ?)")
         .bind(p.userId, now(), p.label, p.pins.join(","), res.detail),
@@ -173,8 +191,20 @@ export async function runPoll(env) {
 
   summary.errors = summary.errors.slice(0, 10);
   summary.ms = Date.now() - started * 1000;
+  summary.amul_requests = amulRequests;
   await setMeta(db, "last_run", summary);
-  await db.prepare("DELETE FROM rate WHERE window_start < ?").bind(now() - 86400).run();
-  await db.prepare("DELETE FROM alert_log WHERE ts < ?").bind(now() - 30 * 86400).run();
+  await recordRun(db, summary, amulRequests, notifyRequests, summary.ms);
+  if (summary.errors.length && !summary.checks) {
+    await logEvent(env, { level: "error", kind: "poll_error", actor: "system", detail: summary.errors.slice(0, 3).join("; ") });
+  }
+  // Housekeeping once an hour, not every minute, to keep D1 writes low.
+  if (new Date().getUTCMinutes() === 0) {
+    await db.batch([
+      db.prepare("DELETE FROM rate WHERE window_start < ?").bind(now() - 86400),
+      db.prepare("DELETE FROM alert_log WHERE ts < ?").bind(now() - 30 * 86400),
+      db.prepare("DELETE FROM runs WHERE ts < ?").bind(now() - 7 * 86400),
+      db.prepare("DELETE FROM events WHERE ts < ?").bind(now() - 30 * 86400),
+    ]);
+  }
   return summary;
 }

@@ -6,6 +6,7 @@
 // Google: standard OAuth code flow with PKCE and a signed state cookie. Enabled only
 // when GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set.
 
+import { logEvent } from "./log.js";
 import {
   USERNAME_RE,
   allow,
@@ -108,6 +109,7 @@ export async function signup(env, req, body) {
   }
   await allow(env.DB, "signup-all", 1000000, 3600);
   const user = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
+  await logEvent(env, { kind: "signup", user: { id: user.id, username }, detail: "new account", req });
   return json({ ok: true }, 200, { "Set-Cookie": await startSession(env, user.id) });
 }
 
@@ -133,13 +135,21 @@ export async function login(env, req, body) {
   // Counted before the check, in one atomic statement, so parallel guesses from one
   // network cannot all slip through; a successful login clears it.
   const tooMany = "Too many wrong passwords. Wait a few minutes and try again.";
-  if (!(await allow(env.DB, `login-fail:${user.id}:${ip}`, 8, 900))) fail(429, tooMany);
+  if (!(await allow(env.DB, `login-fail:${user.id}:${ip}`, 8, 900))) {
+    await logEvent(env, { level: "warn", kind: "login_blocked", user, detail: "too many attempts from one network", req });
+    fail(429, tooMany);
+  }
   if ((await peek(env.DB, `login-fail-all:${user.id}`, 3600)) >= 60) fail(429, tooMany);
   if (!(await verifyPassword(password, user.pass_hash))) {
     await allow(env.DB, `login-fail-all:${user.id}`, 60, 3600);
+    await logEvent(env, { level: "warn", kind: "login_fail", user, detail: "wrong password", req });
     fail(401, generic);
   }
-  if (user.disabled) fail(401, generic);
+  if (user.disabled) {
+    await logEvent(env, { level: "warn", kind: "login_fail", user, detail: "account disabled", req });
+    fail(401, generic);
+  }
+  await logEvent(env, { kind: "login", user, detail: "password", req });
   await env.DB.prepare("DELETE FROM rate WHERE key = ?").bind(`login-fail:${user.id}:${ip}`).run();
   return json({ ok: true }, 200, { "Set-Cookie": await startSession(env, user.id) });
 }
@@ -177,6 +187,7 @@ export async function changePassword(env, req, user, body) {
   if (!(await allow(env.DB, `pw-check:${user.id}`, 10, 900))) fail(429, "Too many tries. Wait 15 minutes.");
   if (!(await verifyPassword(String(body.current || ""), user.pass_hash))) fail(401, "The current password is wrong.");
   checkPassword(body.password, user.username);
+  await logEvent(env, { kind: "password_change", user, detail: "other devices signed out", req });
   const keep = await sha256b64(cookieValue(req, COOKIE));
   await env.DB.batch([
     env.DB.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").bind(await hashPassword(body.password), user.id),
@@ -186,7 +197,10 @@ export async function changePassword(env, req, user, body) {
   return json({ ok: true });
 }
 
+export const ownerName = (env) => String(env.OWNER_USERNAME || "namitjain").toLowerCase();
+
 export async function deleteAccount(env, user, body) {
+  if (user.username === ownerName(env)) fail(403, "The owner account cannot be deleted.");
   if (user.pass_hash) {
     if (!(await allow(env.DB, `pw-check:${user.id}`, 10, 900))) fail(429, "Too many tries. Wait 15 minutes.");
     if (!(await verifyPassword(String(body.password || ""), user.pass_hash))) fail(401, "The password is wrong.");
@@ -196,6 +210,7 @@ export async function deleteAccount(env, user, body) {
     if (admins.n <= 1) fail(400, "You are the only admin. Make someone else admin first.");
   }
   await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id).run();
+  await logEvent(env, { kind: "account_delete", user, detail: "deleted own account" });
   return json({ ok: true }, 200, { "Set-Cookie": clearCookie });
 }
 
@@ -286,6 +301,7 @@ export async function googleCallback(env, req) {
     user = await env.DB.prepare("SELECT * FROM users WHERE google_sub = ?").bind(claims.sub).first();
   }
   if (user.disabled) return back("disabled");
+  await logEvent(env, { kind: "login", user, detail: "google", req });
   const headers = new Headers({ Location: "/#/" });
   headers.append("Set-Cookie", await startSession(env, user.id));
   headers.append("Set-Cookie", "__Host-g=; Path=/; Secure; Max-Age=0");

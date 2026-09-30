@@ -57,6 +57,29 @@ Admin tab is hidden from other users, but the protection is the server's role ch
 **Sign-in options:** username and password work out of the box. "Continue with Google"
 appears once you add a Google OAuth client (below).
 
+## Monitoring
+
+Admin > **Monitor** shows, from D1:
+
+- **Poller health**: healthy, running late (no run for 2.5 min), failing (the last 3 runs
+  read nothing), or not running (no run for 5 min).
+- **Last 24 hours**: requests sent to Amul, load per minute, product checks, alerts sent
+  and not delivered, errors, active people, sign-ups, failed logins, run time, runs
+  completed out of 1,440, pincode groups waiting.
+- **Charts**: Amul requests, checks, alerts and failing runs per hour, and Amul requests
+  per day for a week.
+- **Recent runs**: every cron run with its numbers and any errors.
+
+Admin > **Activity** is the event log: sign-ups, logins and failed logins, every alert
+change, notification devices, test messages, alerts sent or not delivered, admin actions,
+and server or poller errors. Filter by kind or search by user, product or pincode.
+Instead of IP addresses it stores a short hash that changes every day, enough to see many
+events coming from one place.
+
+Runs are kept 7 days and events 30 days. Every log line also goes to Cloudflare Workers
+Logs (`[observability]` in `wrangler.toml`), searchable in the Cloudflare dashboard for 3
+days; the "Raw logs" button opens it.
+
 ## Limits and abuse protection
 
 | Risk | Protection |
@@ -73,7 +96,7 @@ appears once you add a Google OAuth client (below).
 | Stalling the poller | Work is split into units of at most 20 products, so no pincode is ever too big for one run |
 | Using the service to spam | Webhooks only to `discord.com` and `hooks.slack.com` (no credentials, ports or redirects); push only to the browsers' own push services; ntfy topics are generated, not chosen; 5 test messages per hour; 5 devices per person |
 | Impersonation in names | Control and bidi characters are stripped from display names |
-| Losing the admin | The last active admin cannot be disabled, demoted or deleted |
+| Losing the admin | The owner account (`OWNER_USERNAME`) can never be disabled, demoted or deleted, by anyone including itself; the last active admin cannot be removed either |
 | Hammering Amul | One shop session shared by all users; each pincode and product is read once per round, spread over time |
 | Personal data | Username or Google email only. Deleting an account removes its alerts and history immediately |
 
