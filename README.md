@@ -33,9 +33,25 @@ something flips from out of stock to in stock.
 
 ![Live stock per pincode](docs/images/live-stock.png)
 
+## Do I need an account, token or cookie?
+
+No. Amul Stock Watch never logs in to Amul and needs no API key. It opens the shop
+homepage once to get an ordinary anonymous session, signs each request the way the shop's
+own page does, and renews the session by itself when it expires.
+
+Tokens only come in for some ways of *sending* alerts, and only if you choose them:
+
+| Notifier | Needs |
+|---|---|
+| ntfy (phone push), desktop, browser, webhook, command | nothing |
+| Telegram | a bot token from @BotFather |
+| Slack, Discord | a webhook URL (or a Slack bot token for DMs) |
+| Email | an SMTP password (a Gmail app password works) |
+
 ## Quick start
 
-You need Python 3.10+ and curl (built into macOS and Windows 10+).
+You need Python 3.10+, curl (built into macOS and Windows 10+) and, for the one-line
+installers, git.
 
 **macOS / Linux**
 
@@ -47,11 +63,16 @@ curl -fsSL https://raw.githubusercontent.com/nmtjn1997/amul-stock-watch/main/scr
 amul-watch serve
 ```
 
+If the shell says `command not found`, open a new terminal, or run
+`~/.local/bin/amul-watch serve` (the installer prints the exact path).
+
 **Windows (PowerShell)**
 
 ```powershell
 irm https://raw.githubusercontent.com/nmtjn1997/amul-stock-watch/main/scripts/install.ps1 | iex
 ```
+
+Open a **new** PowerShell window (so the updated PATH is picked up), then:
 
 ```powershell
 amul-watch serve
@@ -67,8 +88,8 @@ git clone https://github.com/nmtjn1997/amul-stock-watch.git && cd amul-stock-wat
 docker compose up -d
 ```
 
-Then open <http://127.0.0.1:8847>. The first run creates an example watch (Rose Lassi at
-pincode 110001, desktop notification). Replace it with your own in the UI.
+Then open <http://127.0.0.1:8847>. Inside a container the desktop and browser notifiers
+cannot reach you, so add an **ntfy** (or Telegram, email) notifier first.
 
 **From source**
 
@@ -77,8 +98,15 @@ git clone https://github.com/nmtjn1997/amul-stock-watch.git && cd amul-stock-wat
 ```
 
 ```bash
-pip install . && amul-watch init && amul-watch serve
+python3 -m venv .venv && . .venv/bin/activate && pip install . && amul-watch init && amul-watch serve
 ```
+
+(A plain `pip install .` is refused by Homebrew and recent Debian/Ubuntu Pythons; the
+venv avoids that. `pipx install .` works too.)
+
+The first run comes with one example watch: Rose Lassi at pincode 110001, alerting the
+`desktop` and `browser` notifiers. Delete it once you have added your own, or it keeps
+being polled.
 
 To keep it running after you close the terminal:
 
@@ -87,7 +115,7 @@ amul-watch service install
 ```
 
 That registers `amul-watch serve` with launchd (macOS), a systemd user unit (Linux) or
-Task Scheduler (Windows). Docker needs nothing extra: the container restarts itself.
+the Startup folder (Windows, no admin rights needed). Docker needs nothing extra: the container restarts itself.
 
 ## Your first real watch
 
@@ -160,8 +188,12 @@ Every key is documented in **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)**.
 
 ## Security notes
 
-- The web UI binds to `127.0.0.1` by default. If you expose it (Docker on a home server,
-  `--host 0.0.0.0`), set `AMUL_WATCH_UI_PASSWORD` to require a password.
+- The web UI binds to `127.0.0.1` by default and only answers to `localhost` names, and
+  it refuses requests from other web pages, so a site you visit cannot change your
+  config. To use it from other devices (Docker on a home server, `--host 0.0.0.0`), set
+  `AMUL_WATCH_UI_PASSWORD`; without one, requests to any other host name are refused.
+- Secrets typed into the UI are shown masked afterwards, and are passed to curl through
+  a private file rather than the command line.
 - Keep secrets in `.env` and reference them from YAML as `${NAME}`.
 - An ntfy topic is effectively a password: anyone who knows it can read your alerts.
   Use a long random one.

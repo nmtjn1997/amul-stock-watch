@@ -141,8 +141,10 @@ sequenceDiagram
 - **Config is re-read every cycle.** A UI edit (or a hand edit) takes effect within one
   interval, with no restart and no "apply" step. It also means no process can keep
   polling a stale set of pincodes after someone turns them off.
-- **Delivery zones are cached for a day.** A pincode maps to a regional store; the product
-  API takes that store's id. Looking it up once a day halves the request count.
+- **The session is switched to each pincode before its products are read.** The product
+  API answers for the session's selected region and ignores its `substore` parameter, so
+  the loop sets the region (two small PUTs) whenever it moves to the next pincode. The
+  pincode to region lookup itself is cached for a day.
 - **Requests are spread, not burst.** With 3 pincodes x 3 products the loop makes one
   request every ~5 seconds rather than 12 in a row. Friendlier to the shop, and a burst is
   what rate limiters look for.
@@ -159,15 +161,21 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> OutOfStock
     OutOfStock --> InStock: poll sees qty > 0<br/>SEND full alert, mark key
+    OutOfStock --> OutOfStock: in stock but no notifier accepted<br/>retry next cycle
     InStock --> InStock: still in stock<br/>no alert (optional qty update)
     InStock --> OutOfStock: poll sees qty 0<br/>clear key, re-armed
     InStock --> InStock: poll failed (network)<br/>keep state, no alert
 ```
 
-The state per `pincode:alias` lives in `stock_state`; sent alerts in `alert_sent`. When a
-product is out everywhere, all its keys are cleared so the next restock alerts again.
-Quantity updates (`qty_update_alerts`) only fire when the change is at least
-`qty_update_min_delta`, so a busy restock does not buzz a phone every minute.
+The gate is the `alert_sent` row per `pincode:alias`: a pincode is alerted when it is in
+stock and has no row, and the row is written only after at least one notifier accepted
+the alert. So a failed send (SMTP down, phone offline) or a restart between reading the
+stock and sending is retried on the next cycle instead of being lost. Going out of stock
+deletes the row, which re-arms the next restock.
+
+Quantity updates (`qty_update_alerts`) compare against the last quantity actually
+*reported*, not the previous poll, so a slow drain of 10, 9, 8, 7 still produces one
+update once it adds up to `qty_update_min_delta`.
 
 ## Flow 3: the Amul session
 
@@ -287,7 +295,7 @@ SQLite at `data/amul-watch.db`:
 | Table | Key | Holds |
 |---|---|---|
 | `stock_state` | `pincode:alias` | in_stock, qty, variant, price, updated_at |
-| `alert_sent` | alert key | when the last full alert for this key went out |
+| `alert_sent` | `pincode:alias` | the restock alert for this pincode was delivered; cleared when it sells out |
 | `substore_cache` | pincode | delivery-zone id and name, refreshed daily |
 | `meta` | name | small values, such as the last reported unified quantity per product |
 

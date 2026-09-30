@@ -27,6 +27,30 @@ jobs:
           amul-watch alerts
           amul-watch simulate stock --pincode 110001 --dry-run
 
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install.sh from the checkout
+        if: runner.os != 'Windows'
+        run: |
+          bash scripts/install.sh
+          ~/.local/bin/amul-watch --help >/dev/null || amul-watch --help >/dev/null
+      - name: install.ps1 from the checkout
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/install.ps1
+          & "$env:LOCALAPPDATA\amul-watch\bin\amul-watch.cmd" doctor; if ($LASTEXITCODE -gt 1) { exit 1 }
+          & "$env:LOCALAPPDATA\amul-watch\bin\amul-watch.cmd" paths
+
   docker:
     runs-on: ubuntu-latest
     steps:

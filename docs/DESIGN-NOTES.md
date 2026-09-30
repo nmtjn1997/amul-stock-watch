@@ -43,6 +43,11 @@ a round of false restock alerts on the next good cycle.
 Cloudflare than curl's. A single transport also means one place to fix a corporate proxy
 (`CURL_CA_BUNDLE`) for both the shop and the notifiers.
 
+**One session per caller.** The shop decides what stock to return from the session's
+selected region, so the poller, one-off CLI commands and the UI's inline poll each keep
+their own cookie jar, and the poller switches region per pincode. Sharing one session
+would let a CLI `stock` run change what the poller reads mid-cycle.
+
 **Routes do not merge.** The most specific matching route wins outright. Merging
 `pin:product` with `*:product` would make "who gets this?" require reading several lines
 and reasoning about precedence. `amul-watch alerts` prints the resolved answer.
@@ -76,7 +81,7 @@ whole UI can be read in one sitting.
 - The shop API is undocumented. If Amul changes it, `client.py` and `stock.py` are the
   two places to update, and `amul-watch doctor` is the fastest way to see what broke.
 - The `desktop` notifier cannot reach you from inside Docker; use ntfy or Telegram there.
-- Windows service mode uses a logon task, so it runs while you are logged in, not at boot.
+- Windows service mode uses the Startup folder, so it runs while you are logged in, not at boot.
 - The UI has one shared password when enabled, not user accounts. Put it behind a reverse
   proxy with real auth if it is on the internet.
 - One process per home directory. Two `serve` processes on the same home would both poll

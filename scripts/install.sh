@@ -17,6 +17,11 @@ for c in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
   fi
 done
 [[ -n "$PY" ]] || { echo "error: Python 3.10+ not found. macOS: brew install python (or python.org). Linux: sudo apt install python3 python3-venv" >&2; exit 1; }
+if [[ "$SRC" == "$REPO" ]]; then need git "macOS: xcode-select --install  |  Linux: sudo apt install git"; fi
+if ! command -v pipx >/dev/null 2>&1 && ! "$PY" -c 'import venv, ensurepip' >/dev/null 2>&1; then
+  echo "error: $PY cannot create virtual environments. On Debian/Ubuntu: sudo apt install python3-venv" >&2
+  exit 1
+fi
 
 if command -v pipx >/dev/null 2>&1; then
   pipx install --force --python "$PY" "$SRC"
@@ -33,6 +38,8 @@ fi
 AW="$(command -v amul-watch || echo "$HOME/.local/bin/amul-watch")"
 "$AW" init
 echo
-echo "Installed. Next:"
-echo "  amul-watch serve              # web UI + poller, opens http://127.0.0.1:8847"
-echo "  amul-watch service install    # keep it running in the background after login"
+echo "Installed: $AW"
+echo "Next:"
+echo "  $AW serve              # web UI + poller, opens http://127.0.0.1:8847"
+echo "  $AW service install    # keep it running in the background after login"
+command -v amul-watch >/dev/null 2>&1 || echo "(open a new terminal, or add $(dirname "$AW") to PATH, to type just amul-watch)"

@@ -121,7 +121,8 @@ nothing useful inside Docker; use ntfy there.
 
 ## Add a pincode
 
-**UI**: Addresses & Products > Add address. `Label` is private (only in the UI);
+**UI**: Addresses & Products > Add address. A new address watches nothing until you add a
+watch for it (or use Add watch directly, which creates the address too). `Label` is private (only in the UI);
 `Short label` is what appears in alert messages, so use a city name, not a person's name.
 
 **YAML** (`config.yaml`):
@@ -158,7 +159,11 @@ Check it resolves: `amul-watch doctor` looks the first watched product up live.
 ## Add a watch
 
 **UI**: Watches > Add watch > pick or type a pincode > tick one or more products > tick
-notifiers > Save. One watch is created per product.
+notifiers > Save. One watch is created per product. Ticking no notifiers means the watch
+follows `default_alerts`, and keeps following it if you change the defaults later.
+
+Deleting a notifier also removes it from every watch; a watch left with nobody falls back
+to `default_alerts`.
 
 **YAML**: a watch is the pincode's `products` entry plus a route:
 
@@ -202,7 +207,7 @@ amul-watch service install
 |---|---|---|
 | macOS | LaunchAgent `io.github.amul-watch` | `data/service.err.log`, `data/amul-watch.log` |
 | Linux | systemd user unit `amul-watch.service` | `journalctl --user -u amul-watch`, `data/amul-watch.log` |
-| Windows | Scheduled task `amul-watch`, at logon | `data\amul-watch.log` |
+| Windows | `amul-watch.vbs` in your Startup folder (no admin needed) | `data\amul-watch.log` |
 | Docker | `restart: unless-stopped` | `docker compose logs -f` |
 
 On Linux, run `loginctl enable-linger $USER` to keep it running while logged out.

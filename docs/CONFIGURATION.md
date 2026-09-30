@@ -12,7 +12,7 @@ Both YAML files are re-read at the start of every poll cycle.
 | `pincodes[].label` | `Pin <pincode>` | Private name, shown only in the UI |
 | `pincodes[].short` | | Public place name used in alert text. Falls back to the pincode |
 | `pincodes[].enabled` | `true` | `false` keeps the entry but stops polling it |
-| `pincodes[].products` | all enabled | Allowlist of product short names or aliases for this pincode |
+| `pincodes[].products` | all enabled | Product short names or aliases watched at this pincode. A missing key means every enabled product; an empty list means none |
 | `pincodes[].disabled_products` | | Parked watches: kept for re-enabling, not polled |
 | `watchlist[]` | `[]` | Products |
 | `watchlist[].alias` | | Slug from `https://shop.amul.com/en/product/<alias>` |
@@ -52,7 +52,7 @@ Both YAML files are re-read at the start of every poll cycle.
 | `type` | Required | Optional |
 |---|---|---|
 | `email` | `to` (list) | |
-| `ntfy` | `topic` | `server`, `token` |
+| `ntfy` | `topic` | `server`, `token` (for protected topics) |
 | `telegram` | `bot_token`, `chat_id` | |
 | `discord` | `url` | |
 | `slack_webhook` | `url` | |
@@ -67,15 +67,16 @@ send time. A missing variable becomes an empty string, which `doctor` and the UI
 
 ## .env
 
-`KEY=value` lines, loaded into the environment at startup and before every cycle. Real
-environment variables take precedence. Created with owner-only permissions.
+`KEY=value` lines, loaded into the environment at startup, before every poll cycle and on
+every UI page load, so edits apply without a restart. A variable set in the real
+environment (shell, Docker, systemd) always wins over `.env`. Created with owner-only
+permissions.
 
 | Variable | Used for |
 |---|---|
 | any `${NAME}` you reference | notifier secrets |
 | `AMUL_WATCH_UI_PASSWORD` | require HTTP basic auth on the web UI (any username) |
 | `AMUL_COOKIE`, `AMUL_MS_GA` | an imported browser session; set with `amul-watch session import` |
-| `AMUL_USER_ID` | only for listing saved addresses of a logged-in account (not needed) |
 
 ## Environment only
 
@@ -83,5 +84,6 @@ environment variables take precedence. Created with owner-only permissions.
 |---|---|
 | `AMUL_WATCH_HOME` | Home directory (same as `--home`) |
 | `AMUL_WATCH_HOST` | Default bind address for `serve`/`ui` (Docker sets `0.0.0.0`) |
+| `AMUL_WATCH_ALLOWED_HOSTS` | Extra host names the UI answers to without a password (comma separated), e.g. `amul.home` behind a local reverse proxy |
 | `AMUL_CURL` | curl binary |
 | `CURL_CA_BUNDLE` | CA bundle for curl, for corporate TLS proxies |
