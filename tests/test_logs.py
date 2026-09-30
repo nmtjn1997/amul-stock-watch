@@ -24,6 +24,13 @@ class LogReaderTests(unittest.TestCase):
         with self.path.open("a") as fh:
             fh.write(text)
 
+    def test_crlf_offsets_are_exact(self) -> None:
+        self.path.write_bytes(b"".join(f"line {i}\r\n".encode() for i in range(1, 11)))
+        tail = L.read_log("t", limit=3)
+        self.assertEqual(tail["lines"], ["line 8", "line 9", "line 10"])
+        older = L.read_log("t", limit=3, before=tail["start"])
+        self.assertEqual(older["lines"], ["line 5", "line 6", "line 7"])
+
     def test_tail_returns_last_n(self) -> None:
         self.assertEqual(L.read_log("t", limit=3)["lines"], ["line 8", "line 9", "line 10"])
 

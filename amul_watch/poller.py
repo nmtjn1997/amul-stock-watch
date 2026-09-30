@@ -182,6 +182,25 @@ def finalize_poll_alerts(
     return summary
 
 
+def session_looks_dead(
+    by_alias: dict[str, list[PinPollResult]],
+    summary: dict[str, Any],
+    guard: SessionGuard | None,
+) -> bool:
+    """A real out-of-stock product still returns its record. If EVERY product came back
+    empty the session is dead, and trusting it would read as "all out of stock", reset
+    every alert gate and cause false restock alerts on the next good cycle."""
+    all_results = [r for rs in by_alias.values() for r in rs]
+    if not all_results or any(r.had_data for r in all_results):
+        return False
+    summary["session_expired"] = True
+    summary["errors"].append(f"session likely expired: all {len(all_results)} products returned empty")
+    log.warning("SESSION DEAD? all %d product checks returned empty bodies; restarting the session", len(all_results))
+    if guard:
+        guard.handle_dead_session()
+    return True
+
+
 def run_poll(
     client: AmulClient,
     db: StockDB,
@@ -189,10 +208,11 @@ def run_poll(
     *,
     guard: SessionGuard | None = None,
     alerts_enabled: bool = True,
+    check_session: bool = True,
 ) -> dict[str, Any]:
     """Run full poll immediately (burst). Used by CLI `poll` / `check`."""
     summary: dict[str, Any] = {"checks": 0, "alerts": 0, "qty_updates": 0, "errors": []}
-    if guard and not guard.ensure_valid():
+    if guard and check_session and not guard.ensure_valid():
         summary["errors"].append("Amul session unavailable")
         log.warning("poll skipped: Amul session unavailable")
         return summary
@@ -218,24 +238,7 @@ def run_poll(
         if result:
             by_alias[result.alias].append(result)
 
-    # Dead-session guard: a valid session returns real product bodies even when OOS.
-    # If EVERY checked product came back with an empty body, the session is silently
-    # dead (the pincode cookie probe can still pass), so restart the session, and do NOT
-    # process alerts on the empty data (which would otherwise read as "all OOS").
-    all_results = [r for rs in by_alias.values() for r in rs]
-    if all_results and not any(r.had_data for r in all_results):
-        summary["session_expired"] = True
-        summary["errors"].append(
-            f"session likely expired: all {len(all_results)} products returned empty"
-        )
-        log.warning(
-            "SESSION DEAD? %d/%d product checks returned empty bodies. Not trusting them "
-            "as out of stock; restarting the session.",
-            len(all_results),
-            summary["checks"],
-        )
-        if guard:
-            guard.handle_dead_session()
+    if session_looks_dead(by_alias, summary, guard):
         return summary
 
     alert_summary = finalize_poll_alerts(cfg, db, client, by_alias, alerts_enabled=alerts_enabled)

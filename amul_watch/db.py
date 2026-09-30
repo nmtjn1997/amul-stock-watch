@@ -53,14 +53,6 @@ class StockDB:
         rows = self._conn.execute("SELECT * FROM stock_state ORDER BY key").fetchall()
         return [dict(r) for r in rows]
 
-    def any_in_stock_for_alias(self, alias: str) -> bool:
-        needle = f'"{alias}"'
-        row = self._conn.execute(
-            "SELECT 1 FROM stock_state WHERE in_stock=1 AND payload LIKE ? LIMIT 1",
-            (f"%{needle}%",),
-        ).fetchone()
-        return row is not None
-
     def set_stock(self, key: str, in_stock: bool, qty: int, variant_label: str, price: float | None, payload: dict) -> None:
         self._conn.execute(
             """
@@ -78,11 +70,8 @@ class StockDB:
         )
         self._conn.commit()
 
-    def alert_allowed(self, key: str, cooldown_hours: float) -> bool:
-        row = self._conn.execute("SELECT sent_at FROM alert_sent WHERE key=?", (key,)).fetchone()
-        if not row:
-            return True
-        return (time.time() - row["sent_at"]) >= cooldown_hours * 3600
+    def alert_sent(self, key: str) -> bool:
+        return self._conn.execute("SELECT 1 FROM alert_sent WHERE key=?", (key,)).fetchone() is not None
 
     def mark_alert(self, key: str) -> None:
         self._conn.execute(
@@ -95,17 +84,6 @@ class StockDB:
         """Forget a prior full alert so the next 0→in-stock can notify again."""
         self._conn.execute("DELETE FROM alert_sent WHERE key=?", (key,))
         self._conn.commit()
-
-    def clear_product_alert_keys(self, alias: str) -> int:
-        """Clear pin + product-level alert keys when stock is fully gone. Returns rows deleted."""
-        deleted = 0
-        cur = self._conn.execute("DELETE FROM alert_sent WHERE key LIKE ?", (f"%{alias}",))
-        deleted += cur.rowcount
-        for key in (f"product:{alias}", f"poll:{alias}", f"email:{alias}"):
-            cur = self._conn.execute("DELETE FROM alert_sent WHERE key=?", (key,))
-            deleted += cur.rowcount
-        self._conn.commit()
-        return deleted
 
     def get_substore(self, pincode: str) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT * FROM substore_cache WHERE pincode=?", (pincode,)).fetchone()

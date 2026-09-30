@@ -8,6 +8,7 @@ import random
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.parse
 from pathlib import Path
@@ -22,7 +23,6 @@ PRODUCT_API = f"{BASE_URL}/api/1/entity/ms.products"
 PINCODE_API = f"{BASE_URL}/entity/pincode"
 SETTINGS_API = f"{BASE_URL}/entity/ms.settings/_/setPreferences"
 INFO_JS = f"{BASE_URL}/user/info.js"
-ADDRESSES_API = f"{BASE_URL}/api/1/entity/ms.user_addresses"
 ENQUIRIES_API = f"{BASE_URL}/api/1/entity/ms.product_enquiries"
 STORE_ID = "62fa94df8c13af2e242eba16"
 
@@ -59,6 +59,37 @@ def find_curl(configured: str | None = None) -> str:
     )
 
 
+def _curl_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+def curl_config(url: str, headers: dict[str, str]) -> str:
+    """URL and headers as a curl config file (owner-only), so cookies and tokens never
+    appear in the process list the way command-line arguments do."""
+    fd, path = tempfile.mkstemp(prefix="amul-curl-", suffix=".cfg")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(f"url = {_curl_quote(url)}\n")
+        for key, value in headers.items():
+            fh.write(f"header = {_curl_quote(f'{key}: {value}')}\n")
+    return path
+
+
+def _run_curl(cmd: list[str], *, input_text: str | None = None, timeout: int = 40,
+              config: str | None = None) -> subprocess.CompletedProcess[str]:
+    """A hung request becomes a retryable AmulAPIError, never an exception that escapes the poller."""
+    try:
+        return subprocess.run(cmd + ["--max-time", str(timeout)], input=input_text,
+                              capture_output=True, text=True, timeout=timeout + 10)
+    except subprocess.TimeoutExpired as exc:
+        raise AmulAPIError("request timed out", retryable=True) from exc
+    finally:
+        if config:
+            try:
+                os.unlink(config)
+            except OSError:
+                pass
+
+
 class AmulAPIError(Exception):
     def __init__(self, message: str, *, status: int | None = None, body: str = "", retryable: bool = False) -> None:
         super().__init__(message)
@@ -68,7 +99,13 @@ class AmulAPIError(Exception):
 
 
 class AmulClient:
-    def __init__(self, cfg: dict[str, Any] | None = None, *, delay_seconds: float | None = None) -> None:
+    def __init__(
+        self,
+        cfg: dict[str, Any] | None = None,
+        *,
+        delay_seconds: float | None = None,
+        cookie_jar: Path | None = None,
+    ) -> None:
         cfg = cfg or {}
         dmin = float(cfg.get("request_delay_min", 1.0))
         dmax = float(cfg.get("request_delay_max", 2.0))
@@ -81,11 +118,15 @@ class AmulClient:
         # Manual cookie is optional. Without it the client keeps its own anonymous
         # session in a cookie jar, which is all stock checks need.
         self.cookie = os.environ.get("AMUL_COOKIE", "").strip()
-        self.user_id = os.environ.get("AMUL_USER_ID", "").strip()
         self.ms_ga = os.environ.get("AMUL_MS_GA", "").strip() or _random_ga_id()
         from amul_watch.config import COOKIE_JAR
 
-        self.cookie_jar: Path = COOKIE_JAR
+        # One jar per long-lived caller: the poller and one-off commands must not share a
+        # session, because the session's selected pincode decides what stock is returned.
+        self.cookie_jar: Path = cookie_jar or COOKIE_JAR
+        self._active_pin: str | None = None
+        self._wanted_pin: str | None = None
+        self._pin_store: dict[str, str] = {}
 
     def _curl_base(self) -> list[str]:
         cmd = [find_curl(self._curl), "-sS", "--globoff"]
@@ -112,13 +153,13 @@ class AmulClient:
             pass
         self._curl_text(f"{BASE_URL}/en/", referer=f"{BASE_URL}/")
         self._session_tid = "bootstrap"
+        self._active_pin = None
         if not self.has_session():
             raise AmulAPIError("could not start an Amul session (no jsessionid cookie returned)", retryable=True)
         log.info("started a new anonymous Amul session")
 
     def reload_from_env(self) -> None:
         self.cookie = os.environ.get("AMUL_COOKIE", self.cookie).strip()
-        self.user_id = os.environ.get("AMUL_USER_ID", self.user_id).strip()
         self.ms_ga = os.environ.get("AMUL_MS_GA", self.ms_ga).strip()
         tid = os.environ.get("AMUL_SESSION_TID")
         if tid:
@@ -173,12 +214,11 @@ class AmulClient:
         headers = self._headers(referer=referer, with_json=with_json or body is not None)
         if not self.has_session():
             self.bootstrap_session()
-        cmd = [*self._curl_base(), "-X", method, url, "-w", "\n__HTTP__%{http_code}"]
-        for key, value in headers.items():
-            cmd.extend(["-H", f"{key}: {value}"])
+        config = curl_config(url, headers)
+        cmd = [*self._curl_base(), "-K", config, "-X", method, "-w", "\n__HTTP__%{http_code}"]
         if body is not None:
             cmd.extend(["--data-raw", json.dumps(body)])
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        proc = _run_curl(cmd, config=config)
         if proc.returncode != 0:
             raise AmulAPIError(f"curl failed: {proc.stderr.strip() or proc.stdout.strip()}", retryable=True)
 
@@ -266,10 +306,8 @@ class AmulClient:
     def _curl_text(self, url: str, *, referer: str) -> str:
         self._limiter.wait()
         headers = self._headers(referer=referer)
-        cmd = [*self._curl_base(), url]
-        for key, value in headers.items():
-            cmd.extend(["-H", f"{key}: {value}"])
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        config = curl_config(url, headers)
+        proc = _run_curl([*self._curl_base(), "-K", config], config=config)
         if proc.returncode != 0:
             raise AmulAPIError(f"curl failed: {proc.stderr.strip()}", retryable=True)
         return proc.stdout
@@ -291,18 +329,6 @@ class AmulClient:
         if tid:
             self._session_tid = str(tid)
             os.environ["AMUL_SESSION_TID"] = self._session_tid
-
-    def list_addresses(self) -> list[dict[str, Any]]:
-        if not self.user_id:
-            raise AmulAPIError("AMUL_USER_ID not set: saved addresses need a logged-in session")
-        q = json.dumps({"user_id": self.user_id}, separators=(",", ":"))
-        data = self._request(
-            "GET",
-            ADDRESSES_API,
-            referer=f"{BASE_URL}/en/account/addresses",
-            params={"q": q},
-        )
-        return data.get("records") or data.get("data") or []
 
     def lookup_pincode(self, pincode: str) -> dict[str, str]:
         """Pincode delivery zone: record id (product API substore param) + region store alias."""
@@ -377,7 +403,25 @@ class AmulClient:
         self.set_store_preference(info["store"], referer=ref)
         self.set_geolocation_preference(info["pincode"], referer=ref)
         self.refresh_session_tid()
+        self._pin_store[str(pincode)] = info["store"]
+        self._active_pin = self._wanted_pin = str(pincode)
         return info
+
+    def use_pincode(self, pincode: str, store: str) -> None:
+        """Point the session at this pincode's region before reading its stock.
+
+        The product API answers for the session's selected region and ignores the
+        substore parameter, so without this every pincode would report the stock of
+        whichever pincode was selected last.
+        """
+        pin = str(pincode)
+        self._pin_store[pin] = store
+        self._wanted_pin = pin
+        if self._active_pin == pin:
+            return
+        self.set_store_preference(store)
+        self.set_geolocation_preference(pin)
+        self._active_pin = pin
 
     def resolve_substore(self, pincode: str) -> tuple[str, str | None]:
         info = self.activate_pincode_session(pincode)
@@ -389,6 +433,12 @@ class AmulClient:
         referer = f"{BASE_URL}/en/product/{alias}"
         data = self._request("GET", PRODUCT_API, referer=referer, params=params)
         records = data.get("records") or data.get("data") or []
+        wanted = self._wanted_pin
+        if not records and self._active_pin is None and wanted in self._pin_store:
+            # The session was renewed mid-request, which drops the selected pincode.
+            self.use_pincode(wanted, self._pin_store[wanted])
+            data = self._request("GET", PRODUCT_API, referer=referer, params=params)
+            records = data.get("records") or data.get("data") or []
         if records:
             return records[0]
         if isinstance(data, dict) and data.get("alias"):

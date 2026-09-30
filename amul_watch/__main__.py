@@ -41,13 +41,13 @@ def _early_home(argv: list[str]) -> None:
 
 def _client_guard_db():
     from amul_watch.client import AmulClient
-    from amul_watch.config import DB_PATH, load_config, load_session_env
+    from amul_watch.config import CLI_COOKIE_JAR, DB_PATH, load_config, load_session_env
     from amul_watch.db import StockDB
     from amul_watch.session_guard import SessionGuard
 
     load_session_env()
     cfg = load_config()
-    client = AmulClient(cfg)
+    client = AmulClient(cfg, cookie_jar=CLI_COOKIE_JAR)
     return cfg, client, SessionGuard(client, cfg), StockDB(DB_PATH)
 
 

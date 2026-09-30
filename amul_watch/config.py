@@ -49,13 +49,19 @@ DATA_DIR = HOME / "data"
 DB_PATH = DATA_DIR / "amul-watch.db"
 LOG_PATH = DATA_DIR / "amul-watch.log"
 STOCK_CSV_PATH = DATA_DIR / "stock-inventory.csv"
-COOKIE_JAR = DATA_DIR / "cookies.txt"
+COOKIE_JAR = DATA_DIR / "cookies.txt"          # the poller's session
+CLI_COOKIE_JAR = DATA_DIR / "cookies-cli.txt"  # one-off commands, so they never move the poller's session
 PAUSED_FILE = DATA_DIR / "paused.json"
 HEARTBEAT_FILE = DATA_DIR / "heartbeat.json"
 
 
+# Variables set before we started (shell, Docker, systemd) always beat .env.
+_REAL_ENV = frozenset(os.environ)
+
+
 def load_session_env(*, force: bool = False) -> None:
-    """Load HOME/.env into the environment. Real environment variables win unless force."""
+    """Load HOME/.env into the environment. force re-reads it so edits apply, but a
+    variable from the real environment is never overwritten."""
     if not SESSION_ENV.is_file():
         return
     for raw in SESSION_ENV.read_text(encoding="utf-8").splitlines():
@@ -66,6 +72,8 @@ def load_session_env(*, force: bool = False) -> None:
         key = key.strip()
         val = val.strip().strip('"').strip("'")
         if not key:
+            continue
+        if key in _REAL_ENV:
             continue
         if force or key not in os.environ:
             os.environ[key] = val

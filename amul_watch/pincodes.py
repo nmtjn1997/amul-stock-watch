@@ -74,9 +74,11 @@ def collect_pincodes(_client: AmulClient | None, cfg: dict[str, Any]) -> list[di
 
 
 def resolve_substore_cached(client: AmulClient, db: StockDB, pincode: str) -> tuple[str, str | None]:
-    """Amul's delivery-zone id for a pincode, cached for a day."""
+    """Amul's delivery-zone id for a pincode (cached for a day), with the session
+    switched to that pincode so the next product reads are for it."""
     cached = db.get_substore(pincode)
-    if cached and (time.time() - cached["updated_at"]) < 86400:
+    if cached and cached.get("substore_name") and (time.time() - cached["updated_at"]) < 86400:
+        client.use_pincode(pincode, str(cached["substore_name"]))
         return cached["substore_id"], cached.get("substore_name")
     substore_id, name = client.resolve_substore(pincode)
     db.set_substore(pincode, substore_id, name)

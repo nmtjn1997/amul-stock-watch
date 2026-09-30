@@ -7,18 +7,20 @@ or custom CA: whatever the local curl trusts, the whole program trusts.
 from __future__ import annotations
 
 import json
-import subprocess
 from typing import Any
 
 
 def _curl(url: str, data: str, headers: dict[str, str], timeout: int) -> str:
-    from amul_watch.client import find_curl
+    from amul_watch.client import AmulAPIError, _run_curl, curl_config, find_curl
 
-    cmd = [find_curl(), "-sS", "--fail-with-body", "-X", "POST", url, "--data-binary", "@-",
-           "--max-time", str(timeout)]
-    for key, value in headers.items():
-        cmd += ["-H", f"{key}: {value}"]
-    proc = subprocess.run(cmd, input=data, capture_output=True, text=True, timeout=timeout + 5)
+    # URL and headers go in a private config file: bot tokens in URLs and Authorization
+    # headers must not be visible in the process list.
+    config = curl_config(url, headers)
+    try:
+        proc = _run_curl([find_curl(), "-sS", "--fail-with-body", "-X", "POST", "-K", config,
+                          "--data-binary", "@-"], input_text=data, timeout=timeout, config=config)
+    except AmulAPIError as exc:
+        raise RuntimeError(str(exc)) from exc
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or f"curl exit {proc.returncode}").strip()[:300])
     return proc.stdout

@@ -94,15 +94,20 @@ def read_log(
             end = start + cut + 1
             raw = raw[: cut + 1]
 
-    lines = raw.decode("utf-8", errors="replace").splitlines()
+    # Work in raw byte lines so offsets stay exact with \r\n (Windows) as well as \n.
+    parts = raw.split(b"\n")
+    if parts and parts[-1] == b"":
+        parts.pop()
 
-    if partial_head and start > 0 and lines:
-        start += len(lines.pop(0).encode("utf-8", errors="replace")) + 1
+    if partial_head and start > 0 and parts:
+        start += len(parts.pop(0)) + 1
 
-    if after is None and len(lines) > limit:
-        for dropped in lines[:-limit]:
-            start += len(dropped.encode("utf-8", errors="replace")) + 1
-        lines = lines[-limit:]
+    if after is None and len(parts) > limit:
+        for dropped in parts[:-limit]:
+            start += len(dropped) + 1
+        parts = parts[-limit:]
+
+    lines = [part.decode("utf-8", errors="replace").rstrip("\r") for part in parts]
 
     return {
         "file": name,

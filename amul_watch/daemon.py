@@ -38,6 +38,11 @@ from amul_watch.session_guard import SessionGuard
 
 log = logging.getLogger(__name__)
 
+# Set by the UI's "Force refresh" to start the next cycle now. Only meaningful when the
+# poller runs in this process (`serve`); POLLER_RUNNING says whether it does.
+WAKE = threading.Event()
+POLLER_RUNNING = threading.Event()
+
 
 def setup_logging(*, to_stdout: bool = True) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -127,66 +132,99 @@ def poll_loop(stop: threading.Event | None = None) -> None:
     db = StockDB(DB_PATH)
     guard = SessionGuard(client, cfg)
     log.info("amul-watch poller started (every %ss)", cfg.get("poll_interval_seconds", 60))
+    POLLER_RUNNING.set()
 
     cycle = 0
     prev_pins = -1
-    while not stop.is_set():
-        started = time.monotonic()
-        try:
-            cfg = load_config()
-        except Exception as exc:
-            log.warning("config reload failed, keeping previous: %s", exc)
-        guard.cfg = cfg
-        interval = float(cfg.get("poll_interval_seconds", 60))
-        jitter = float(cfg.get("poll_jitter_seconds", 10))
-
-        if is_paused():
-            _write_heartbeat({"paused": True, "cycle": cycle})
-            stop.wait(5)
-            continue
-
-        reload_session_env()
-        client.reload_from_env()
-        cycle += 1
-        n_pins = len(collect_pincodes(client, cfg))
-        if n_pins != prev_pins:
-            log.info("config: polling %s pincode(s)", n_pins)
-            prev_pins = n_pins
-
-        summary: dict[str, Any] = {"checks": 0, "alerts": 0, "errors": []}
-        # A spread cycle takes a whole interval, so mark liveness before it starts too.
-        _write_heartbeat({"cycle": cycle, "pincodes": n_pins, "polling": True})
-        if n_pins:
-            if cycle == 1 or cycle % int(cfg.get("session_check_every_polls", 5)) == 0:
-                guard.ensure_valid()
+    try:
+        while not stop.is_set():
+            started = time.monotonic()
+            interval = 60.0
             try:
-                if cfg.get("poll_spread", True):
-                    summary = run_spread_poll(client, db, cfg, guard=guard)
-                else:
-                    summary = run_poll(client, db, cfg, guard=guard)
-                log.info(
-                    "poll done checks=%s alerts=%s errors=%s",
-                    summary["checks"],
-                    summary["alerts"],
-                    len(summary["errors"]),
-                )
-                for err in summary["errors"][:5]:
-                    log.warning("%s", err)
-            except Exception as exc:
-                log.exception("poll failed: %s", exc)
-                summary["errors"] = [str(exc)]
+                cycle, prev_pins, interval = _one_cycle(client, db, guard, cycle, prev_pins, stop)
+            except Exception as exc:  # a bad config value or a bug must never end polling
+                log.exception("poll cycle failed: %s", exc)
+                _write_heartbeat({"cycle": cycle, "errors": [f"cycle failed: {exc}"]})
+            if stop.is_set():
+                break
+            _sleep_until_next(stop, started, interval)
+    finally:
+        POLLER_RUNNING.clear()
 
-        _write_heartbeat(
-            {
-                "cycle": cycle,
-                "pincodes": n_pins,
-                "checks": summary.get("checks", 0),
-                "alerts": summary.get("alerts", 0),
-                "errors": [str(e) for e in summary.get("errors", [])][:5],
-            }
-        )
-        elapsed = time.monotonic() - started
-        stop.wait(max(0.0, interval + random.uniform(0, jitter) - elapsed))
+
+def _cfg_number(cfg: dict[str, Any], key: str, default: float, minimum: float) -> float:
+    try:
+        return max(minimum, float(cfg.get(key, default)))
+    except (TypeError, ValueError):
+        log.warning("config %s=%r is not a number, using %s", key, cfg.get(key), default)
+        return default
+
+
+def _one_cycle(client: AmulClient, db: StockDB, guard: SessionGuard, cycle: int, prev_pins: int,
+               stop: threading.Event) -> tuple[int, int, float]:
+    try:
+        cfg = load_config()
+    except Exception as exc:
+        log.warning("config reload failed, keeping previous: %s", exc)
+        cfg = guard.cfg
+    guard.cfg = cfg
+    interval = _cfg_number(cfg, "poll_interval_seconds", 60, 10)
+
+    if is_paused():
+        _write_heartbeat({"paused": True, "cycle": cycle})
+        WAKE.clear()
+        stop.wait(5)
+        return cycle, prev_pins, 0.0
+
+    reload_session_env()
+    client.reload_from_env()
+    cycle += 1
+    n_pins = len(collect_pincodes(client, cfg))
+    if n_pins != prev_pins:
+        log.info("config: polling %s pincode(s)", n_pins)
+        prev_pins = n_pins
+
+    summary: dict[str, Any] = {"checks": 0, "alerts": 0, "errors": []}
+    # A spread cycle takes a whole interval, so mark liveness before it starts too.
+    _write_heartbeat({"cycle": cycle, "pincodes": n_pins, "polling": True})
+    if n_pins:
+        every = int(_cfg_number(cfg, "session_check_every_polls", 5, 1))
+        session_ok = True
+        if cycle == 1 or cycle % every == 0:
+            session_ok = guard.ensure_valid()
+        if session_ok:
+            poll = run_spread_poll if cfg.get("poll_spread", True) else run_poll
+            summary = poll(client, db, cfg, guard=guard, check_session=False)
+            log.info("poll done checks=%s alerts=%s errors=%s",
+                     summary["checks"], summary["alerts"], len(summary["errors"]))
+            for err in summary["errors"][:5]:
+                log.warning("%s", err)
+        else:
+            summary["errors"] = ["Amul session unavailable"]
+
+    _write_heartbeat(
+        {
+            "cycle": cycle,
+            "pincodes": n_pins,
+            "checks": summary.get("checks", 0),
+            "alerts": summary.get("alerts", 0),
+            "errors": [str(e) for e in summary.get("errors", [])][:5],
+        }
+    )
+    return cycle, prev_pins, interval
+
+
+def _sleep_until_next(stop: threading.Event, started: float, interval: float) -> None:
+    if interval <= 0:
+        return
+    cfg = load_config()
+    jitter = _cfg_number(cfg, "poll_jitter_seconds", 10, 0)
+    deadline = started + interval + random.uniform(0, jitter)
+    while not stop.is_set() and time.monotonic() < deadline:
+        if WAKE.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
+            WAKE.clear()
+            log.info("poll requested from the UI")
+            return
 
 
 def start_background(stop: threading.Event) -> threading.Thread:

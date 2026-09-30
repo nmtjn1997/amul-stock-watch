@@ -64,7 +64,7 @@ def run() -> int:
     from amul_watch.client import AmulClient
     from amul_watch.session_guard import SessionGuard
 
-    client = AmulClient(cfg)
+    client = AmulClient(cfg, cookie_jar=c.CLI_COOKIE_JAR)
     ok = SessionGuard(client, cfg).check(strict=True)
     if not ok and not client.cookie:
         try:

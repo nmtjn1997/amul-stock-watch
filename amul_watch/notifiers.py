@@ -163,7 +163,12 @@ def send_command(spec: dict[str, Any], alert: Alert, _cfg: dict[str, Any]) -> No
     command = spec.get("command")
     if not command:
         raise NotifierError("missing `command`")
-    argv = command if isinstance(command, list) else shlex.split(str(command))
+    if isinstance(command, list):
+        argv: list[str] | str = [str(a) for a in command]
+    elif sys.platform.startswith("win"):
+        argv = str(command)  # Windows parses its own command lines; shlex would eat backslashes
+    else:
+        argv = shlex.split(str(command))
     env = dict(os.environ)
     env.update(
         {
@@ -177,7 +182,7 @@ def send_command(spec: dict[str, Any], alert: Alert, _cfg: dict[str, Any]) -> No
             "AMUL_ALERT_JSON": json.dumps(alert.as_dict()),
         }
     )
-    proc = subprocess.run([str(a) for a in argv], env=env, capture_output=True, text=True, timeout=60)
+    proc = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60)
     if proc.returncode != 0:
         raise NotifierError(f"command exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[:300]}")
 

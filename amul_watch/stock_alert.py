@@ -160,14 +160,13 @@ def fire_transition_alert(
     pincode: str | None = None,
     pin_label: str | None = None,
     stock: ProductStock | None = None,
-    alert_key: str | None = None,
     alert_pincodes: list[str] | None = None,
 ) -> bool:
-    """Full alert, sent only on an out-of-stock to in-stock transition."""
+    """Send the restock alert. True when at least one notifier accepted it (or there is
+    nobody to tell), which is what lets the caller close the alert gate."""
     item = _watch_item(cfg, alias)
     label = (item or {}).get("label") or product_name
     prefer_pack = bool((item or {}).get("prefer_pack_of_30", True))
-    key = alert_key or (f"{pincode}:{alias}" if pincode else f"{source}:{alias}")
 
     rows: list[dict[str, Any]] = []
     if client is not None:
@@ -227,7 +226,6 @@ def fire_transition_alert(
     )
     names = stock_route_names(cfg, alias, in_pins)
     results = notify_stock_full(cfg, alert, names=names)
-    db.mark_alert(key)
 
     from amul_watch import notifications as nf
 
@@ -239,4 +237,4 @@ def fire_transition_alert(
             "results": results,
         }
     )
-    return True
+    return not results or any(r == "ok" for r in results.values())

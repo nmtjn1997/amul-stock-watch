@@ -15,6 +15,7 @@ from amul_watch.poller import (
     finalize_poll_alerts,
     poll_product_task,
     resolve_substore_task,
+    session_looks_dead,
 )
 from amul_watch.product_poll import PinPollResult
 
@@ -46,10 +47,11 @@ def run_spread_poll(
     *,
     guard: SessionGuard | None = None,
     alerts_enabled: bool = True,
+    check_session: bool = True,
 ) -> dict[str, Any]:
     """Run one full watchlist cycle with API calls spread evenly across poll_interval_seconds."""
     summary: dict[str, Any] = {"checks": 0, "alerts": 0, "qty_updates": 0, "errors": [], "spread": True}
-    if guard and not guard.ensure_valid():
+    if guard and check_session and not guard.ensure_valid():
         summary["errors"].append("Amul session unavailable")
         log.warning("spread poll skipped: Amul session unavailable")
         return summary
@@ -99,6 +101,9 @@ def run_spread_poll(
                 sync_inventory_csv(db, cfg)
             except Exception as exc:
                 log.warning("inventory csv sync failed: %s", exc)
+
+    if session_looks_dead(by_alias, summary, guard):
+        return summary
 
     alert_summary = finalize_poll_alerts(cfg, db, client, by_alias, alerts_enabled=alerts_enabled)
     summary["alerts"] = alert_summary["alerts"]

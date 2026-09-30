@@ -41,26 +41,34 @@ def pins_unified(results: list[PinPollResult]) -> bool:
     return len({r.qty for r in ins}) == 1
 
 
-def _product_qty_meta_key(alias: str) -> str:
-    return f"product_qty:{alias}"
+def _baseline_key(alias: str, pincode: str | None) -> str:
+    return f"product_qty:{alias}" if pincode is None else f"qty:{pincode}:{alias}"
 
 
-def _last_unified_qty(db: StockDB, alias: str) -> int | None:
-    raw = db.get_meta(_product_qty_meta_key(alias))
-    if raw is None or raw == "":
-        return None
+def _get_baseline(db: StockDB, key: str) -> int | None:
+    raw = db.get_meta(key)
     try:
-        return int(raw)
+        return int(raw) if raw not in (None, "") else None
     except ValueError:
         return None
 
 
-def _set_unified_qty(db: StockDB, alias: str, qty: int) -> None:
-    db.set_meta(_product_qty_meta_key(alias), str(qty))
-
-
-def _clear_unified_qty(db: StockDB, alias: str) -> None:
-    db.set_meta(_product_qty_meta_key(alias), "")
+def _qty_update(cfg: dict[str, Any], db: StockDB, *, label: str, alias: str, qty: int,
+                pincode: str | None) -> bool:
+    """Report a quantity change against the last *reported* quantity, so a slow drain
+    (10, 9, 8, ...) is still reported once it adds up to qty_update_min_delta."""
+    key = _baseline_key(alias, pincode)
+    baseline = _get_baseline(db, key)
+    if baseline is None:
+        db.set_meta(key, str(qty))
+        return False
+    if qty == baseline:
+        return False
+    sent = notify_stock_qty(cfg, product_label=label, qty=qty, prev_qty=baseline,
+                            pincode=pincode, national=pincode is None)
+    if sent:
+        db.set_meta(key, str(qty))
+    return sent
 
 
 def process_product_alerts(
@@ -69,33 +77,35 @@ def process_product_alerts(
     client: Any,
     results: list[PinPollResult],
 ) -> tuple[int, int]:
-    """Apply deduped full alerts and qty updates for one product. Returns (alerts, qty_updates)."""
+    """Full alerts and qty updates for one product. Returns (alerts, qty_updates).
+
+    The gate is the alert_sent row, not the previous poll: a pincode is alerted when it
+    is in stock and has not been alerted since it was last out of stock. The row is only
+    written once a notifier accepted the alert, so a failed send or a restart between
+    the stock read and the send is retried on the next cycle.
+    """
     if not results:
         return 0, 0
 
     alias = results[0].alias
     product_label = results[0].product_label
-    transitions = [r for r in results if r.in_stock and not r.was_in_stock]
     in_stock = _in_stock_results(results)
-    unified = pins_unified(results)
+    for r in results:
+        if not r.in_stock:
+            db.clear_alert(r.key)
+            db.set_meta(_baseline_key(alias, r.pincode), "")
+    if not in_stock:
+        db.set_meta(_baseline_key(alias, None), "")
+        return 0, 0
+
+    transitions = [r for r in in_stock if not db.alert_sent(r.key)]
     alerts = 0
     qty_updates = 0
-
-    if not in_stock:
-        _clear_unified_qty(db, alias)
-        cleared = db.clear_product_alert_keys(alias)
-        if cleared:
-            log.info(
-                "all pins OUT for %s: cleared %s alert key(s) (ready for next 0→stock)",
-                product_label,
-                cleared,
-            )
-        return 0, 0
 
     if transitions:
         primary = transitions[0]
         pins = [r.pincode for r in transitions]
-        if fire_transition_alert(
+        delivered = fire_transition_alert(
             cfg,
             db,
             client,
@@ -106,40 +116,25 @@ def process_product_alerts(
             pincode=primary.pincode,
             pin_label=primary.pin_label,
             stock=primary.stock,
-            alert_key=f"{alias}:batch:{','.join(sorted(pins))}",
             alert_pincodes=pins,
-        ):
+        )
+        if delivered:
             alerts += 1
             for r in transitions:
                 db.mark_alert(r.key)
-        _set_unified_qty(db, alias, in_stock[0].qty)
+                db.set_meta(_baseline_key(alias, r.pincode), str(r.qty))
+            db.set_meta(_baseline_key(alias, None), str(in_stock[0].qty))
+        else:
+            log.warning("no notifier accepted the %s alert; it will be retried next cycle", product_label)
 
-    # Qty updates go to qty_update_alerts only; compare against last reported unified qty (not per-pin drift)
-    if unified:
-        qty = in_stock[0].qty
-        prev_reported = _last_unified_qty(db, alias)
-        if prev_reported is None:
-            _set_unified_qty(db, alias, qty)
-        elif qty != prev_reported:
-            notify_stock_qty(
-                cfg,
-                product_label=product_label,
-                qty=qty,
-                prev_qty=prev_reported,
-                national=True,
-            )
+    fresh = {r.pincode for r in transitions}
+    if pins_unified(results):
+        if not fresh and _qty_update(cfg, db, label=product_label, alias=alias,
+                                     qty=in_stock[0].qty, pincode=None):
             qty_updates += 1
-            _set_unified_qty(db, alias, qty)
     else:
         for r in in_stock:
-            if r.was_in_stock and r.qty != r.prev_qty:
-                notify_stock_qty(
-                    cfg,
-                    product_label=product_label,
-                    pincode=r.pincode,
-                    qty=r.qty,
-                    prev_qty=r.prev_qty,
-                )
+            if r.pincode not in fresh and _qty_update(cfg, db, label=product_label, alias=alias,
+                                                      qty=r.qty, pincode=r.pincode):
                 qty_updates += 1
-
     return alerts, qty_updates

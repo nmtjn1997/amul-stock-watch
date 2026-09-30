@@ -34,23 +34,23 @@ def notify_stock_qty(
     *,
     product_label: str,
     qty: int,
-    prev_qty: int | None = None,
+    prev_qty: int,
     pincode: str | None = None,
     national: bool = False,
-) -> None:
-    """While in stock: quantity changes go only to qty_update_alerts (usually a quiet channel)."""
+) -> bool:
+    """While in stock: quantity changes go only to qty_update_alerts. True if reported."""
     names = qty_alert_names(cfg)
     if not names:
-        return
+        return False
     try:
         min_delta = max(1, int(cfg.get("qty_update_min_delta", 2)))
     except (TypeError, ValueError):
         min_delta = 2
-    if prev_qty is not None and abs(prev_qty - qty) < min_delta:
-        return
+    if abs(prev_qty - qty) < min_delta:
+        return False
     where = "all pincodes" if national else format_pin_scope(cfg, pincode)
-    change = f"{prev_qty} -> {qty}" if prev_qty is not None and prev_qty != qty else str(qty)
-    send(
+    change = f"{prev_qty} -> {qty}"
+    results = send(
         cfg,
         names,
         Alert(
@@ -62,6 +62,7 @@ def notify_stock_qty(
             qty=qty,
         ),
     )
+    return any(r == "ok" for r in results.values())
 
 
 def notify_system(cfg: dict[str, Any], title: str, message: str) -> dict[str, str]:

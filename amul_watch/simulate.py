@@ -58,6 +58,9 @@ def sim_stock(cfg: dict[str, Any], *, pincode: str, product: str = "", dry_run: 
         print(alert.message)
         return {}
     results = send(cfg, names, alert)
+    from amul_watch import notifications as nf
+
+    nf.record({**alert.as_dict(), "source": "test", "notifiers": names, "results": results})
     for name, result in results.items():
         print(f"  {name}: {result}")
     return results

@@ -2,7 +2,7 @@
 
     macOS    launchd LaunchAgent   ~/Library/LaunchAgents/io.github.amul-watch.plist
     Linux    systemd user unit     ~/.config/systemd/user/amul-watch.service
-    Windows  Task Scheduler        task "amul-watch", at logon
+    Windows  Startup folder        amul-watch.vbs (per user, no admin rights needed)
 
 Docker needs none of this: `restart: unless-stopped` in docker-compose.yml does the job.
 """
@@ -18,7 +18,6 @@ from amul_watch.config import DATA_DIR, HOME
 
 LABEL = "io.github.amul-watch"
 UNIT = "amul-watch.service"
-TASK = "amul-watch"
 
 
 def _argv() -> list[str]:
@@ -157,28 +156,34 @@ def _linux_status() -> int:
 # Windows
 # --------------------------------------------------------------------------- #
 
+def _startup_script() -> Path:
+    appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "amul-watch.vbs"
+
+
 def _win_install() -> int:
-    command = subprocess.list2cmdline(_argv())
-    proc = _run(["schtasks", "/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", TASK, "/TR", command])
-    if proc.returncode != 0:
-        print(f"schtasks failed: {(proc.stderr or proc.stdout).strip()}")
-        return 1
-    _run(["schtasks", "/Run", "/TN", TASK])
-    print(f"installed scheduled task {TASK!r} (starts at every logon)")
+    # A scheduled logon task needs an elevated shell; the per-user Startup folder does not.
+    # The .vbs wrapper starts pythonw with no console window.
+    command = subprocess.list2cmdline(_argv()).replace('"', '""')
+    script = _startup_script()
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(f'CreateObject("WScript.Shell").Run "{command}", 0, False\r\n', encoding="utf-8")
+    subprocess.Popen(["wscript.exe", str(script)])
+    print(f"installed {script} (starts at every logon, and started now)")
     return 0
 
 
 def _win_uninstall() -> int:
-    _run(["schtasks", "/End", "/TN", TASK])
-    _run(["schtasks", "/Delete", "/F", "/TN", TASK])
-    print(f"removed scheduled task {TASK!r}")
+    _startup_script().unlink(missing_ok=True)
+    print("removed the startup entry. A copy already running keeps running until you log off,")
+    print("or stop it from Task Manager (pythonw.exe).")
     return 0
 
 
 def _win_status() -> int:
-    proc = _run(["schtasks", "/Query", "/TN", TASK])
-    print("service: installed" if proc.returncode == 0 else "service: not installed")
-    return proc.returncode
+    installed = _startup_script().is_file()
+    print("service: installed (Startup folder)" if installed else "service: not installed")
+    return 0 if installed else 1
 
 
 def _dispatch(action: str) -> int:
