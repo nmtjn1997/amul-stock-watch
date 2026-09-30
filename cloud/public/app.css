@@ -178,8 +178,10 @@ details.more summary { list-style: none; }
 details.more summary::-webkit-details-marker { display: none; }
 details.more summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
 details.more[open] summary::before { transform: rotate(90deg); }
-.seg[role="tablist"] { display: grid; grid-template-columns: repeat(4, 1fr); }
-.seg[role="tablist"] button { padding: 7px 4px; }
+.seg.admin-nav { display: grid; grid-template-columns: repeat(4, 1fr); }
+.seg.admin-nav button { padding: 7px 4px; }
 .chip::before { content: ""; position: absolute; inset: -5px 0; } /* 44 px tall tap area, gaps stay visual */
-.seg[role="tablist"] button { min-height: 44px; }
-@media (max-width: 360px) { .seg[role="tablist"] { gap: 4px; } .seg[role="tablist"] button { font-size: 14px; padding: 7px 2px; } }
+.seg.admin-nav button { min-height: 44px; }
+@media (max-width: 360px) { .seg.admin-nav { gap: 4px; } .seg.admin-nav button { font-size: 14px; padding: 7px 2px; } }
+a:focus-visible, button:focus-visible, summary:focus-visible, [role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }

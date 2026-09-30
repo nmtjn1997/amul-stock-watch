@@ -102,7 +102,17 @@ function closeSheet() {
   sheetOpener = null;
 }
 $("#scrim")?.addEventListener("click", (e) => { if (e.target.id === "scrim") closeSheet(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+document.addEventListener("keydown", (e) => {
+  if ($("#scrim").hidden) return;
+  if (e.key === "Escape") { closeSheet(); return; }
+  if (e.key !== "Tab") return;
+  // Keep keyboard focus inside the open sheet.
+  const f = [...$("#sheet").querySelectorAll("button, a[href], input, summary")].filter((n) => !n.disabled && n.offsetParent);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 // ------------------------------------------------------------------ auth screens
 
@@ -291,7 +301,7 @@ function qrReveal(choices) {
   const out = h("div", {});
   const pick = (i) => out.replaceChildren(
     choices.length > 1 ? h("div", { class: "seg" }, choices.map((c, j) =>
-      h("button", { type: "button", class: j === i ? "on" : null, onclick: () => pick(j) }, c.label))) : null,
+      h("button", { type: "button", class: j === i ? "on" : null, "aria-pressed": String(j === i), onclick: () => pick(j) }, c.label))) : null,
     h("div", { class: "qrwrap" }, qr(choices[i].text)),
     h("p", { class: "small muted" }, choices[i].hint));
   const btn = h("button", { type: "button", class: "ghost", "aria-expanded": "false", onclick: () => {
@@ -733,8 +743,8 @@ function dailySeries(daily, now) {
 
 async function adminView() {
   const sections = [["monitor", "Monitor"], ["people", "People"], ["products", "Products"], ["activity", "Activity"]];
-  const nav = h("div", { class: "seg", role: "tablist" }, sections.map(([k, label]) =>
-    h("button", { type: "button", role: "tab", "aria-selected": String(adminState.section === k), class: adminState.section === k ? "on" : "",
+  const nav = h("div", { class: "seg admin-nav", role: "group", "aria-label": "Admin sections" }, sections.map(([k, label]) =>
+    h("button", { type: "button", "aria-pressed": String(adminState.section === k), class: adminState.section === k ? "on" : "",
       onclick: () => { adminState.section = k; adminView(); } }, label)));
   const body = h("div", {}, h("div", { class: "card" }, "Loading..."));
   show(nav, body);
@@ -836,7 +846,7 @@ async function activitySection() {
   search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(async () => { adminState.search = search.value.trim(); await load(true); draw(); }, 300); });
   return [
     h("div", { class: "card" },
-      h("div", { class: "chips" }, groups.map(([k, label]) => h("button", { type: "button", class: adminState.group === k ? "chip on" : "chip",
+      h("div", { class: "chips" }, groups.map(([k, label]) => h("button", { type: "button", class: adminState.group === k ? "chip on" : "chip", "aria-pressed": String(adminState.group === k),
         onclick: async () => { adminState.group = k; adminView(); } }, label))),
       search, list, moreBtn,
       h("p", { class: "small muted" }, "Kept for 30 days. \"Network\" is a one-way hash that changes daily: it shows when many events come from one place, without storing IP addresses.")),
