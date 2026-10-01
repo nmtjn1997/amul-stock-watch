@@ -1,10 +1,10 @@
-// Where a user's alerts go:
+// Where a user's alerts go, tried in this order:
 //   push     browser / home-screen notifications on each device the person turned on (default)
+//   email    this site's Gmail account, to an address the person verified
+//   telegram this site's Telegram bot, once the person linked a chat
 //   ntfy     the ntfy app, opt-in: ntfy.sh without an account shares a daily quota per
 //            sending IP and all Workers share Cloudflare's IPs, so NTFY_TOKEN (an ntfy.sh
 //            account token) is strongly advised when it is used
-//   telegram this site's Telegram bot, once the person linked a chat
-//   email    this site's Gmail account, to an address the person verified
 //   webhook  a Discord or Slack channel
 // Nothing else is allowed: no arbitrary URLs, and email only to verified addresses.
 
@@ -79,11 +79,11 @@ export async function deliver(env, user, alert) {
         : { name: "Browser", ok: false, detail: errors[0] || "the device turned notifications off" });
     }
   }
-  if (user.ntfy_on) await attempt("ntfy", () => ntfy(env, user.ntfy_topic, alert));
-  if (user.tg_chat_id && telegramEnabled(env)) await attempt("Telegram", () => sendTelegram(env, user, alert));
   if (user.alert_email && emailEnabled(env)) {
     await attempt("Email", () => sendEmail(env, user.alert_email, alert.title, `${alert.message}${alert.url ? `\n\n${alert.url}` : ""}\n\nStop these: Settings on the Back in Stock site.`));
   }
+  if (user.tg_chat_id && telegramEnabled(env)) await attempt("Telegram", () => sendTelegram(env, user, alert));
+  if (user.ntfy_on) await attempt("ntfy", () => ntfy(env, user.ntfy_topic, alert));
   if (user.webhook_url) await attempt(user.webhook_url.includes("hooks.slack.com") ? "Slack" : "Discord", () => webhook(user.webhook_url, alert));
   const detail = channels.length
     ? channels.map((c) => `${c.name}: ${c.ok ? "ok" : c.detail}`).join(", ")

@@ -391,10 +391,10 @@ function channelsCard() {
   const u = ME.user;
   const rows = [
     { name: "Browser", label: "Browser notifications", on: ME.devices.length > 0, state: ME.devices.length ? `${ME.devices.length} device${ME.devices.length > 1 ? "s" : ""}` : "Off" },
-    u.telegram === null ? null : { name: "Telegram", label: "Telegram", on: u.telegram, state: u.telegram ? "Connected" : "Not connected" },
     u.alert_email === null ? null : { name: "Email", label: "Email", on: Boolean(u.alert_email), state: u.alert_email ? "Confirmed" : u.email_pending ? "Code sent" : "Not set" },
-    { name: u.webhook || "Slack", label: "Slack or Discord", on: Boolean(u.webhook), state: u.webhook ? `${u.webhook} connected` : "Not set" },
+    u.telegram === null ? null : { name: "Telegram", label: "Telegram", on: u.telegram, state: u.telegram ? "Connected" : "Not connected" },
     { name: "ntfy", label: "ntfy app", on: u.ntfy_on, state: u.ntfy_on ? "On" : "Off" },
+    { name: u.webhook || "Slack", label: "Slack or Discord", on: Boolean(u.webhook), state: u.webhook ? `${u.webhook} connected` : "Not set" },
   ].filter(Boolean);
   for (const r of rows) r.result = h("div", { class: "small" });
   const btn = h("button", { type: "button", class: "primary", onclick: async () => {
@@ -605,9 +605,9 @@ function alertsView() {
   }
   const channels = [];
   if (ME.devices.length) channels.push(ME.devices.length === 1 ? "1 device" : `${ME.devices.length} devices`);
-  if (ME.user.ntfy_on) channels.push("ntfy");
-  if (ME.user.telegram) channels.push("Telegram");
   if (ME.user.alert_email) channels.push("Email");
+  if (ME.user.telegram) channels.push("Telegram");
+  if (ME.user.ntfy_on) channels.push("ntfy");
   if (ME.user.webhook) channels.push(ME.user.webhook);
   show(
     h("div", { class: "summary card" },
@@ -690,9 +690,9 @@ async function settingsView() {
   show(
     channelsCard(),
     h("div", { class: "card" }, h("h2", {}, "Browser notifications"), notifySetup(false)),
-    u.telegram === null ? null : h("div", { class: "card" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
     u.alert_email === null ? null : h("div", { class: "card" }, h("h2", {}, "Email (optional)"), emailSetup()),
-    h("div", { class: "card" }, h("h2", {}, "Other ways to get alerts (optional)"), ntfySetup(),
+    u.telegram === null ? null : h("div", { class: "card" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
+    h("div", { class: "card" }, h("h2", {}, "ntfy (optional)"), ntfySetup(),
       h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),
         h("button", { onclick: once(async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); }) }, "Get a new topic"))),
