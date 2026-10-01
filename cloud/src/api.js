@@ -6,9 +6,10 @@ import { AmulClient } from "./amul.js";
 import { changePassword, deleteAccount, googleEnabled, ownerName } from "./auth.js";
 import { logEvent } from "./log.js";
 import { deliver } from "./notify.js";
+import { EMAIL_RE, emailEnabled, sendEmail } from "./gmail.js";
 import { validSubscription } from "./webpush.js";
 import { zoneFor } from "./poll.js";
-import { ALIAS_RE, PINCODE_RE, allow, cleanName, fail, json, now, randomTopic, validWebhook } from "./util.js";
+import { ALIAS_RE, PINCODE_RE, allow, cleanName, fail, json, now, randomTopic, sha256b64, validWebhook } from "./util.js";
 
 const maxWatches = (env) => Number(env.MAX_WATCHES_PER_USER || 10);
 // Each distinct pincode costs the shared poller two extra requests per round, so one
@@ -27,6 +28,8 @@ function publicUser(u, env) {
     webhook: u.webhook_url ? (u.webhook_url.includes("slack") ? "Slack" : "Discord") : null,
     ntfy_on: Boolean(u.ntfy_on),
     telegram: env.TELEGRAM_BOT_TOKEN ? Boolean(u.tg_chat_id) : null,
+    alert_email: emailEnabled(env) ? (u.alert_email || "") : null,
+    email_pending: u.email_pending && u.email_code_exp > now() ? u.email_pending : "",
     has_password: Boolean(u.pass_hash),
     max_watches: maxWatches(env),
     max_pincodes: maxPincodes(env),
@@ -212,6 +215,42 @@ export async function sendTest(env, user) {
     .bind(user.id, now(), res.detail).run();
   await logEvent(env, { level: res.ok ? "info" : "warn", kind: "test_sent", user, detail: res.detail });
   return json({ ok: res.ok, detail: res.detail, channels: res.channels });
+}
+
+// Email alerts go only to an address its owner confirmed with a code, so nobody can make
+// this site mail a stranger.
+export async function emailStart(env, user, body) {
+  if (!emailEnabled(env)) fail(400, "Email is not set up on this site.");
+  const to = String(body.email || "").trim().toLowerCase();
+  if (!EMAIL_RE.test(to)) fail(400, "That does not look like an email address.");
+  if (!(await allow(env.DB, `email-start:${user.id}`, 3, 3600))) fail(429, "That is 3 codes this hour. Try again later.");
+  const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+  await env.DB.prepare("UPDATE users SET email_pending = ?, email_code_hash = ?, email_code_exp = ? WHERE id = ?")
+    .bind(to, await sha256b64(`${user.id}:${code}`), now() + 900, user.id).run();
+  try {
+    await sendEmail(env, to, `Your Back in Stock code: ${code}`,
+      `Your code is ${code}\n\nEnter it in Settings to get Amul restock alerts at this address. It works for 15 minutes.\n\nDid not ask for this? Ignore this email and nothing will be sent to you.`);
+  } catch (e) {
+    await logEvent(env, { level: "error", kind: "email", user, detail: `code to ${to}: ${e.message}` });
+    fail(503, "Could not send the code just now. Try again in a few minutes.");
+  }
+  await logEvent(env, { kind: "email", user, detail: `code sent to ${to}` });
+  return json({ ok: true });
+}
+
+export async function emailVerify(env, user, body) {
+  if (!(await allow(env.DB, `email-verify:${user.id}`, 10, 3600))) fail(429, "Too many tries. Ask for a new code in an hour.");
+  const code = String(body.code || "").replace(/\D/g, "");
+  if (!user.email_pending || !(user.email_code_exp > now())) fail(400, "That code has expired. Ask for a new one.");
+  if (code.length !== 6 || (await sha256b64(`${user.id}:${code}`)) !== user.email_code_hash) fail(400, "That code is not right.");
+  await env.DB.prepare("UPDATE users SET alert_email = email_pending, email_pending = NULL, email_code_hash = NULL, email_code_exp = NULL WHERE id = ?").bind(user.id).run();
+  await logEvent(env, { kind: "email", user, detail: `verified ${user.email_pending}` });
+  return json({ ok: true });
+}
+
+export async function emailRemove(env, user) {
+  await env.DB.prepare("UPDATE users SET alert_email = NULL, email_pending = NULL, email_code_hash = NULL WHERE id = ?").bind(user.id).run();
+  return json({ ok: true });
 }
 
 export async function history(env, user) {

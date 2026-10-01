@@ -392,6 +392,7 @@ function channelsCard() {
   const rows = [
     { name: "Browser", label: "Browser notifications", on: ME.devices.length > 0, state: ME.devices.length ? `${ME.devices.length} device${ME.devices.length > 1 ? "s" : ""}` : "Off" },
     u.telegram === null ? null : { name: "Telegram", label: "Telegram", on: u.telegram, state: u.telegram ? "Connected" : "Not connected" },
+    u.alert_email === null ? null : { name: "Email", label: "Email", on: Boolean(u.alert_email), state: u.alert_email ? "Confirmed" : u.email_pending ? "Code sent" : "Not set" },
     { name: u.webhook || "Slack", label: "Slack or Discord", on: Boolean(u.webhook), state: u.webhook ? `${u.webhook} connected` : "Not set" },
     { name: "ntfy", label: "ntfy app", on: u.ntfy_on, state: u.ntfy_on ? "On" : "Off" },
   ].filter(Boolean);
@@ -502,6 +503,39 @@ function telegramSetup() {
     connect, box);
 }
 
+function emailSetup() {
+  const u = ME.user;
+  const err = h("div", { class: "err", role: "alert" });
+  const refresh = async () => { await loadMe(); render(); };
+  if (u.alert_email) {
+    return h("div", {},
+      h("p", { class: "small" }, "Alerts also go to ", h("b", {}, u.alert_email), "."),
+      h("button", { type: "button", class: "ghost", onclick: once(async () => { await api("/api/email/remove", {}); await refresh(); toast("Email removed"); }) }, "Remove"));
+  }
+  if (u.email_pending) {
+    const code = h("input", { type: "text", id: "ecode", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", placeholder: "6-digit code" });
+    const btn = h("button", { class: "primary", type: "submit" }, "Confirm");
+    return h("form", { onsubmit: async (e) => {
+      e.preventDefault(); err.textContent = ""; busy(btn, true, "Checking...");
+      try { await api("/api/email/verify", { code: code.value }); await refresh(); toast("Email confirmed"); }
+      catch (x) { err.textContent = x.message; busy(btn, false); }
+    } },
+      h("p", { class: "small" }, "We sent a code to ", h("b", {}, u.email_pending), ". Check spam if it is not in your inbox."),
+      h("label", { class: "f", for: "ecode" }, "Code"), code, err,
+      h("div", { class: "row" }, btn,
+        h("button", { type: "button", class: "ghost", onclick: once(async () => { await api("/api/email/remove", {}); await refresh(); }) }, "Use another address")));
+  }
+  const addr = h("input", { type: "email", id: "eaddr", autocomplete: "email", placeholder: "you@example.com", maxlength: "254" });
+  const send = h("button", { class: "primary", type: "submit" }, "Send code");
+  return h("form", { onsubmit: async (e) => {
+    e.preventDefault(); err.textContent = ""; busy(send, true, "Sending...");
+    try { await api("/api/email/start", { email: addr.value.trim() }); await refresh(); toast("Code sent. Check your email."); }
+    catch (x) { err.textContent = x.message; busy(send, false); }
+  } },
+    h("p", { class: "small muted" }, "Get alerts by email too. We send a 6-digit code first to make sure the address is yours."),
+    h("label", { class: "f", for: "eaddr" }, "Email address"), addr, err, h("div", { class: "row" }, send));
+}
+
 function ntfySetup() {
   const u = ME.user;
   const deep = `ntfy://${u.ntfy_server.replace(/^https?:\/\//, "")}/${u.ntfy_topic}`;
@@ -570,6 +604,7 @@ function alertsView() {
   if (ME.devices.length) channels.push(ME.devices.length === 1 ? "1 device" : `${ME.devices.length} devices`);
   if (ME.user.ntfy_on) channels.push("ntfy");
   if (ME.user.telegram) channels.push("Telegram");
+  if (ME.user.alert_email) channels.push("Email");
   if (ME.user.webhook) channels.push(ME.user.webhook);
   show(
     h("div", { class: "summary card" },
@@ -653,6 +688,7 @@ async function settingsView() {
     channelsCard(),
     h("div", { class: "card" }, h("h2", {}, "Browser notifications"), notifySetup(false)),
     u.telegram === null ? null : h("div", { class: "card" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
+    u.alert_email === null ? null : h("div", { class: "card" }, h("h2", {}, "Email (optional)"), emailSetup()),
     h("div", { class: "card" }, h("h2", {}, "Other ways to get alerts (optional)"), ntfySetup(),
       h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),

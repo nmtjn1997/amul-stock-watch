@@ -43,6 +43,11 @@ flowchart LR
 - **Telegram (optional, reliable from Workers).** Create a bot with @BotFather and run
   `npx wrangler secret put TELEGRAM_BOT_TOKEN`. Each person presses Connect Telegram in
   Settings and then Start in the bot. The webhook registers itself on the first connect.
+- **Email (optional).** Sent through a dedicated Gmail account with a `gmail.send`-only
+  token (it can send, never read). Create a Desktop OAuth client in Google Cloud for that
+  account, then run `node scripts/gmail-auth.mjs <client.json>` in `cloud/`; it stores the
+  three `GMAIL_*` secrets. People confirm their address with a 6-digit code before any
+  alert is sent to it; 3 codes per hour per person, 150 emails per day for the site.
 - **Everything is stored in D1**: accounts, alerts, the last stock seen per pincode and
   product, the 30-day message history and the shop session. Nothing is kept in the browser
   except the session cookie.

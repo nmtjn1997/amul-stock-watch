@@ -74,6 +74,9 @@ async function route(req, env) {
   if (path === "/api/test" && method === "POST") return api.sendTest(env, user);
   if (path === "/api/telegram/link" && method === "POST") return json(await telegram.linkStart(env, req, user));
   if (path === "/api/telegram/unlink" && method === "POST") { await telegram.unlink(env, user); return json({ ok: true }); }
+  if (path === "/api/email/start" && method === "POST") return api.emailStart(env, user, body);
+  if (path === "/api/email/verify" && method === "POST") return api.emailVerify(env, user, body);
+  if (path === "/api/email/remove" && method === "POST") return api.emailRemove(env, user);
   if (path === "/api/push/subscribe" && method === "POST") return api.addDevice(env, user, body);
   if (path === "/api/push/remove" && method === "POST") return api.removeDevice(env, user, body);
   if (path === "/api/history" && method === "GET") return api.history(env, user);
