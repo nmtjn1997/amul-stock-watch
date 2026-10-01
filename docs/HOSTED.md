@@ -214,3 +214,17 @@ the local runtime can reach the shop.
 | CPU per request | 10 ms | a poll run measured 3 ms; password hashing at 100k rounds ran within the limit in testing |
 | D1 reads | 5 million / day | well under 100,000 |
 | D1 writes | 100,000 / day | stock is written only when it changes |
+
+## Looking at the data
+
+- **Admin, Monitor** in the app: health, Amul load, runs, and links to Cloudflare's own
+  dashboards (CPU time per run, searchable logs, database console, plan usage).
+- **SQL from a terminal:** `cloud/scripts/db.sh "SELECT username, created_at FROM users"`,
+  or `cloud/scripts/db.sh tables` to list tables. It runs against the live database, so
+  stick to `SELECT` unless you mean it.
+- **SQL in the browser:** Cloudflare dashboard, Storage and databases, D1, `amul-watch`,
+  Console.
+
+Password hashes live only in `users.pass_hash` and never leave the Worker: every API
+response is built from named fields. Each hash is PBKDF2 over an HMAC with the
+`PASSWORD_PEPPER` secret, so a copy of the database is useless without that secret.

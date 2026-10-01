@@ -1,6 +1,9 @@
 // Accounts and sessions.
 //
-// Passwords: PBKDF2-SHA256, 100k iterations (the most Workers allows), 16-byte salt.
+// Passwords: PBKDF2-SHA256 over HMAC(PASSWORD_PEPPER, password), 10k iterations, 16-byte
+// salt. 10k keeps a login inside the free plan's 10 ms CPU budget; the pepper is a Worker
+// secret that never touches the database, so a leaked database alone cannot be cracked.
+// Older hashes (plain 100k, no pepper) still verify and are rewritten on the next login.
 // Sessions: a random token in an HttpOnly, Secure, SameSite=Lax __Host- cookie; only
 // its SHA-256 is stored, so a leaked database cannot be replayed as a login.
 // Google: standard OAuth code flow with PKCE and a signed state cookie. Enabled only
@@ -25,28 +28,39 @@ import {
 
 const COOKIE = "__Host-sid";
 const SESSION_DAYS = 30;
-const ITERATIONS = 100000;
+const ITERATIONS = 10000;
 
-async function pbkdf2(password, salt, iterations) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256);
-  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+
+async function pbkdf2(material, salt, iterations) {
+  const key = await crypto.subtle.importKey("raw", material, "PBKDF2", false, ["deriveBits"]);
+  return b64(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256));
 }
 
-export async function hashPassword(password) {
+async function peppered(env, password) {
+  if (!env.PASSWORD_PEPPER) throw new Error("PASSWORD_PEPPER is not set");
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.PASSWORD_PEPPER), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(password)));
+}
+
+export async function hashPassword(env, password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  return `pbkdf2$${ITERATIONS}$${btoa(String.fromCharCode(...salt))}$${await pbkdf2(password, salt, ITERATIONS)}`;
+  return `pbkdf2p$${ITERATIONS}$${b64(salt)}$${await pbkdf2(await peppered(env, password), salt, ITERATIONS)}`;
 }
 
-async function verifyPassword(password, stored) {
+async function verifyPassword(env, password, stored) {
   const [scheme, iter, saltB64, hash] = String(stored || "").split("$");
-  if (scheme !== "pbkdf2") return false;
+  if (!saltB64 || !hash) return false;
   const salt = Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0));
-  return timingSafeEqual(await pbkdf2(password, salt, Number(iter)), hash);
+  if (scheme === "pbkdf2p") return timingSafeEqual(await pbkdf2(await peppered(env, password), salt, Number(iter)), hash);
+  if (scheme === "pbkdf2") return timingSafeEqual(await pbkdf2(new TextEncoder().encode(password), salt, Number(iter)), hash);
+  return false;
 }
+
+const needsRehash = (stored) => !String(stored || "").startsWith(`pbkdf2p$${ITERATIONS}$`);
 
 // Same cost as a real check, so an unknown username is not faster to reject.
-const DUMMY = "pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const DUMMY = `pbkdf2p$${ITERATIONS}$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=`;
 
 function checkPassword(password, username) {
   if (typeof password !== "string" || password.length < 8) fail(400, "Use at least 8 characters for the password.");
@@ -93,7 +107,7 @@ export async function signup(env, req, body) {
   // Counted only when an account is really created, so failed attempts cannot hold it shut.
   if ((await peek(env.DB, "signup-all", 3600)) >= 30) fail(429, "Sign-ups are busy right now. Try again in a bit.");
   const max = Number(env.MAX_USERS || 100);
-  const hash = await hashPassword(password);
+  const hash = await hashPassword(env, password);
   // One statement, so two sign-ups at once cannot both slip past the user cap.
   const res = await env.DB.prepare(
     `INSERT INTO users (username, pass_hash, display_name, ntfy_topic, created_at)
@@ -129,7 +143,7 @@ export async function login(env, req, body) {
     ? await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first()
     : null;
   if (!user || !user.pass_hash) {
-    await verifyPassword(password, DUMMY);
+    await verifyPassword(env, password, DUMMY);
     fail(401, generic);
   }
   // Counted before the check, in one atomic statement, so parallel guesses from one
@@ -140,7 +154,7 @@ export async function login(env, req, body) {
     fail(429, tooMany);
   }
   if ((await peek(env.DB, `login-fail-all:${user.id}`, 3600)) >= 60) fail(429, tooMany);
-  if (!(await verifyPassword(password, user.pass_hash))) {
+  if (!(await verifyPassword(env, password, user.pass_hash))) {
     await allow(env.DB, `login-fail-all:${user.id}`, 60, 3600);
     await logEvent(env, { level: "warn", kind: "login_fail", user, detail: "wrong password", req });
     fail(401, generic);
@@ -151,6 +165,9 @@ export async function login(env, req, body) {
   }
   await logEvent(env, { kind: "login", user, detail: "password", req });
   await env.DB.prepare("DELETE FROM rate WHERE key = ?").bind(`login-fail:${user.id}:${ip}`).run();
+  if (needsRehash(user.pass_hash)) {
+    await env.DB.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").bind(await hashPassword(env, password), user.id).run();
+  }
   return json({ ok: true }, 200, { "Set-Cookie": await startSession(env, user.id) });
 }
 
@@ -185,12 +202,12 @@ export async function logout(env, req) {
 export async function changePassword(env, req, user, body) {
   if (!user.pass_hash) fail(400, "This account signs in with Google.");
   if (!(await allow(env.DB, `pw-check:${user.id}`, 10, 900))) fail(429, "Too many tries. Wait 15 minutes.");
-  if (!(await verifyPassword(String(body.current || ""), user.pass_hash))) fail(401, "The current password is wrong.");
+  if (!(await verifyPassword(env, String(body.current || ""), user.pass_hash))) fail(401, "The current password is wrong.");
   checkPassword(body.password, user.username);
   await logEvent(env, { kind: "password_change", user, detail: "other devices signed out", req });
   const keep = await sha256b64(cookieValue(req, COOKIE));
   await env.DB.batch([
-    env.DB.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").bind(await hashPassword(body.password), user.id),
+    env.DB.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").bind(await hashPassword(env, body.password), user.id),
     // Every other device is signed out.
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").bind(user.id, keep),
   ]);
@@ -203,7 +220,7 @@ export async function deleteAccount(env, user, body) {
   if (user.username === ownerName(env)) fail(403, "The owner account cannot be deleted.");
   if (user.pass_hash) {
     if (!(await allow(env.DB, `pw-check:${user.id}`, 10, 900))) fail(429, "Too many tries. Wait 15 minutes.");
-    if (!(await verifyPassword(String(body.password || ""), user.pass_hash))) fail(401, "The password is wrong.");
+    if (!(await verifyPassword(env, String(body.password || ""), user.pass_hash))) fail(401, "The password is wrong.");
   }
   if (user.role === "admin") {
     const admins = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND disabled = 0").first();
