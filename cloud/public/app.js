@@ -566,6 +566,8 @@ function ntfySetup() {
 
 // ------------------------------------------------------------------ my alerts
 
+const shopUrl = (alias) => `https://shop.amul.com/en/product/${encodeURIComponent(alias)}`;
+
 function status(w) {
   if (!w.product_enabled) return h("span", { class: "badge bad" }, "No longer offered");
   if (w.valid === 0) return h("span", { class: "badge bad" }, "Amul does not deliver here");
@@ -595,9 +597,10 @@ function alertsView() {
         catch (x) { toast(x.message, true); }
       }) }, "✕");
     list.append(h("div", { class: "alert" },
-      h("div", { class: "name" }, w.label),
+      h("div", { class: "name" }, h("a", { href: shopUrl(w.alias), target: "_blank", rel: "noopener", class: "plink", title: "Open in the Amul shop" }, w.label, h("span", { class: "ext", "aria-hidden": "true" }, " ↗"))),
       h("div", { class: "acts" }, sw, del),
-      h("div", { class: "meta" }, status(w), h("span", { class: "nowrap" }, `${w.pincode}${w.store ? ` · ${title(w.store)}` : ""}`)),
+      h("div", { class: "meta" }, status(w), h("span", { class: "nowrap" }, `${w.pincode}${w.store ? ` · ${title(w.store)}` : ""}`),
+        w.in_stock && w.product_enabled ? h("a", { class: "btn order", href: shopUrl(w.alias), target: "_blank", rel: "noopener", "aria-label": `Order ${w.label} on the Amul shop` }, "Order ↗") : null),
     ));
   }
   const channels = [];

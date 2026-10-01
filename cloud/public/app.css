@@ -186,3 +186,9 @@ details.more[open] summary::before { transform: rotate(90deg); }
 a:focus-visible, button:focus-visible, summary:focus-visible, [role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 button[aria-busy="true"] { opacity: .6; cursor: progress; }
+.plink { color: inherit; text-decoration: none; }
+.plink:hover { text-decoration: underline; }
+.plink .ext { color: var(--muted); font-weight: 500; }
+.alert .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.btn.order { min-height: 32px; padding: 4px 12px; font-size: 14px; border-radius: 999px; background: var(--ok); color: var(--accent-ink); border-color: var(--ok); position: relative; }
+.btn.order::before { content: ""; position: absolute; inset: -6px -2px; } /* 44 px tap area */
