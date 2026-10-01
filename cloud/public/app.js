@@ -666,7 +666,7 @@ function addSheet() {
 // ------------------------------------------------------------------ help and support
 
 const REPO = "https://github.com/nmtjn1997/amul-stock-watch";
-const UPI_ID = "9971689202@pthdfc";
+const UPI_ID = "nmtjn1997@okhdfcbank";
 
 function feedbackForm() {
   if (!ME) {
@@ -716,7 +716,7 @@ function supportBox() {
       pay.href = n >= 1 && n <= 100000 ? "upi://pay?" + new URLSearchParams({ pa: UPI_ID, pn: "Namit Jain", am: String(n), cu: "INR", tn: "Back in Stock" }) : "#";
     });
     out.replaceChildren(
-      h("img", { class: "upi-img", src: "upi-qr.png", width: "560", height: "700", alt: `UPI QR code for ${UPI_ID}` }),
+      h("img", { class: "upi-img", src: "upi-qr.png", width: "560", height: "642", alt: `UPI QR code for ${UPI_ID}` }),
       copyRow(UPI_ID, "UPI ID"),
       isPhone() ? h("div", {}, h("label", { class: "f", for: "amt" }, "Or pay from this phone"), amount, pay) : h("p", { class: "hint" }, "Scan with GPay, PhonePe, Paytm or any UPI app."));
   } }, "Show UPI ID and QR");
