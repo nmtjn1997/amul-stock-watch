@@ -184,7 +184,13 @@ export class AmulClient {
 
   async product(alias, recordId) {
     const data = await this.request("GET", "/api/1/entity/ms.products", {
-      params: { q: JSON.stringify({ alias }), limit: "1", substore: recordId, v: "5" },
+      // Only the fields parseStock reads: about 1.2 KB instead of 7.4 KB, which matters
+      // inside the free plan's 10 ms CPU budget per run.
+      params: {
+        q: JSON.stringify({ alias }), limit: "1", substore: recordId, v: "5",
+        "fields[name]": "1", "fields[alias]": "1", "fields[sku]": "1", "fields[available]": "1",
+        "fields[inventory_quantity]": "1", "fields[price]": "1", "fields[variants]": "1",
+      },
       referer: `${BASE}/en/product/${alias}`,
     });
     return (data.data || data.records || [])[0] || null;

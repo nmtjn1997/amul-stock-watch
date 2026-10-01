@@ -16,7 +16,12 @@ const BUDGET = 46; // of 50, leaving room for the session bootstrap retry
 const NOTIFY_RESERVE = 10;
 const ZONE_TTL = 86400;
 const GAP_MS = 750;
-const CHUNK = 20; // products per unit: 20 reads + lookup + 2 region calls fit in any run
+const MAX_GAP_MS = 6000;
+const SPREAD_MS = 48000;
+const CHUNK = 20;
+// ponytail: one pincode group per run keeps a run under the free plan's 10 ms CPU limit;
+// with N groups each is re-checked every N minutes. Raise it on the paid plan.
+const UNITS_PER_RUN = 1; // products per unit: 20 reads + lookup + 2 region calls fit in any run
 
 async function getMeta(db, key, fallback) {
   const row = await db.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
@@ -95,16 +100,18 @@ export async function runPoll(env) {
 
   const budget = { left: BUDGET };
   const client = new AmulClient(db, budget);
-  // Spread the shop requests over the minute instead of a burst on the hour mark:
-  // a random 0 to 5 s start, then at least GAP_MS apart. BUDGET x (GAP_MS + ~300 ms) stays
-  // under 60 s, so one run ends before the next cron fires.
-  client.gapMs = GAP_MS;
-  await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 5000)));
   await client.load();
   let cursor = Number(await getMeta(db, "poll_cursor", 0)) % pins.length;
+  // Spread this run's shop requests evenly across the minute instead of a burst: a random
+  // 0 to 5 s start, then one request every SPREAD_MS / expected (between GAP_MS and
+  // MAX_GAP_MS), measured start to start so Amul's response time is inside the gap. Waiting
+  // costs no CPU, and SPREAD_MS + 5 s keeps the run inside its minute.
+  const expected = byPin.get(pins[cursor]).length + 3; // products + 2 region calls + a possible pincode lookup
+  client.gapMs = Math.min(MAX_GAP_MS, Math.max(GAP_MS, Math.floor(SPREAD_MS / expected)));
+  await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 5000)));
   const fresh = []; // pairs now in stock, to alert on
 
-  for (let visited = 0; visited < pins.length; visited++) {
+  for (let visited = 0; visited < Math.min(pins.length, UNITS_PER_RUN); visited++) {
     const items = byPin.get(pins[cursor]);
     const pin = items[0].pincode;
     if (budget.left - NOTIFY_RESERVE < items.length + 3) break; // lookup + 2 region calls
