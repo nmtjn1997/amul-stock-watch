@@ -13,7 +13,7 @@ import { logEvent } from "./log.js";
 import { allow, now } from "./util.js";
 
 const BUDGET = 46; // of 50, leaving room for the session bootstrap retry
-const NOTIFY_RESERVE = 8;
+const NOTIFY_RESERVE = 10;
 const ZONE_TTL = 86400;
 const GAP_MS = 750;
 const CHUNK = 20; // products per unit: 20 reads + lookup + 2 region calls fit in any run
@@ -161,7 +161,7 @@ export async function runPoll(env) {
     }
   }
   for (const p of pending.values()) {
-    if (budget.left < 8) break; // one person may have up to 5 devices + ntfy + chat; the rest go out next minute
+    if (budget.left < NOTIFY_RESERVE) break; // one person: up to 5 devices + ntfy + Telegram + email (+ Gmail sign-in) + chat; the rest go out next minute
     // A person whose channels keep failing is retried every 5 minutes, not every minute.
     if (!(await allow(db, `notify-retry:${p.userId}:${p.alias}`, 1, 300))) continue;
     const user = await db.prepare("SELECT * FROM users WHERE id = ?").bind(p.userId).first();
