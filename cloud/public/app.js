@@ -207,7 +207,7 @@ function authView(mode) {
         h("a", { href: signup ? "#/login" : "#/signup" }, signup ? "Log in" : "Create an account")),
     ),
     h("p", { class: "muted small" }, "Unofficial, not affiliated with Amul. It never logs in to Amul or buys anything. ",
-      h("a", { href: "https://github.com/nmtjn1997/amul-stock-watch" }, "Open source"), "."),
+      h("a", { href: "https://github.com/nmtjn1997/amul-stock-watch" }, "Open source"), ". ", h("a", { href: "#/help" }, "Help and support"), "."),
   ));
   setTimeout(() => user.focus(), 50);
 }
@@ -663,6 +663,82 @@ function addSheet() {
   ));
 }
 
+// ------------------------------------------------------------------ help and support
+
+const REPO = "https://github.com/nmtjn1997/amul-stock-watch";
+const UPI_ID = "9971689202@pthdfc";
+
+function feedbackForm() {
+  if (!ME) {
+    return h("p", { class: "small" }, h("a", { href: "#/login" }, "Log in"), " to send a question or idea, or open an issue on ",
+      h("a", { href: `${REPO}/issues/new`, target: "_blank", rel: "noopener" }, "GitHub"), ".");
+  }
+  let kind = "question";
+  const kinds = [["question", "Question"], ["suggestion", "Suggestion"], ["bug", "Problem"]];
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "Type of message" });
+  const drawSeg = () => seg.replaceChildren(...kinds.map(([k, label]) =>
+    h("button", { type: "button", class: kind === k ? "on" : null, "aria-pressed": String(kind === k), onclick: () => { kind = k; drawSeg(); } }, label)));
+  drawSeg();
+  const email = h("input", { type: "email", id: "fbmail", autocomplete: "email", required: true, maxlength: "254", value: ME.user.alert_email || ME.user.email || "" });
+  const msg = h("textarea", { id: "fbmsg", required: true, maxlength: "2000", placeholder: "What would you like to ask or see?" });
+  const count = h("div", { class: "hint" }, "0 / 2000");
+  msg.addEventListener("input", () => { count.textContent = `${msg.value.length} / 2000`; });
+  const err = h("div", { class: "err", role: "alert" });
+  const send = h("button", { class: "primary", type: "submit" }, "Send");
+  const form = h("form", { onsubmit: async (e) => {
+    e.preventDefault(); err.textContent = ""; busy(send, true, "Sending...");
+    try {
+      await api("/api/feedback", { kind, email: email.value.trim(), message: msg.value });
+      form.replaceChildren(h("p", { class: "ok-line" }, "Thanks! I read every message and reply by email."));
+    } catch (x) { err.textContent = x.message; busy(send, false); }
+  } },
+    seg,
+    h("label", { class: "f", for: "fbmail" }, "Your email (for the reply)"), email,
+    h("label", { class: "f", for: "fbmsg" }, "Message"), msg, count, err,
+    h("div", { class: "row" }, send));
+  return form;
+}
+
+function supportBox() {
+  const out = h("div", {});
+  const btn = h("button", { type: "button", class: "ghost", "aria-expanded": "false", onclick: () => {
+    const open = btn.getAttribute("aria-expanded") !== "true";
+    btn.setAttribute("aria-expanded", String(open));
+    btn.textContent = open ? "Hide UPI details" : "Show UPI ID and QR";
+    if (!open) { out.replaceChildren(); return; }
+    const amount = h("input", { type: "text", inputmode: "numeric", id: "amt", placeholder: "Amount in Rs (1 to 1,00,000)", maxlength: "6" });
+    const pay = h("a", { class: "btn primary wide", href: "#", onclick: (e) => {
+      const n = Number(String(amount.value).replace(/[^0-9]/g, ""));
+      if (!(n >= 1 && n <= 100000)) { e.preventDefault(); toast("Enter an amount from Rs 1 to Rs 1,00,000.", true); }
+    } }, "Pay with a UPI app");
+    amount.addEventListener("input", () => {
+      const n = Number(String(amount.value).replace(/[^0-9]/g, ""));
+      pay.href = n >= 1 && n <= 100000 ? "upi://pay?" + new URLSearchParams({ pa: UPI_ID, pn: "Namit Jain", am: String(n), cu: "INR", tn: "Back in Stock" }) : "#";
+    });
+    out.replaceChildren(
+      h("img", { class: "upi-img", src: "upi-qr.png", width: "560", height: "700", alt: `UPI QR code for ${UPI_ID}` }),
+      copyRow(UPI_ID, "UPI ID"),
+      isPhone() ? h("div", {}, h("label", { class: "f", for: "amt" }, "Or pay from this phone"), amount, pay) : h("p", { class: "hint" }, "Scan with GPay, PhonePe, Paytm or any UPI app."));
+  } }, "Show UPI ID and QR");
+  return h("div", {}, h("p", { class: "small" }, "Back in Stock is free and has no ads. If it helped you get your lassi, any amount from Rs 1 to Rs 1,00,000 keeps it running. Totally optional."), btn, out);
+}
+
+function helpView() {
+  show(
+    h("div", { class: "card" }, h("h2", {}, "Ask, suggest or report a problem"),
+      h("p", { class: "small muted" }, "Questions, feature ideas, a product to add, or something not working. I reply by email."), feedbackForm()),
+    h("div", { class: "card" }, h("h2", {}, "Open source"),
+      h("p", { class: "small" }, "The whole app is open source. You can read the code, run your own copy, or improve it and send a pull request."),
+      h("div", { class: "linklist small" },
+        h("a", { href: REPO, target: "_blank", rel: "noopener" }, "Code on GitHub ↗"),
+        h("a", { href: `${REPO}/issues/new`, target: "_blank", rel: "noopener" }, "Report a bug or idea on GitHub ↗"),
+        h("a", { href: `${REPO}/blob/main/docs/EXTENDING.md`, target: "_blank", rel: "noopener" }, "How to add a feature ↗"),
+        h("a", { href: `${REPO}#readme`, target: "_blank", rel: "noopener" }, "Run your own copy ↗"))),
+    h("div", { class: "card" }, h("h2", {}, "Support the developer"), supportBox()),
+    h("p", { class: "muted small" }, "Unofficial, not affiliated with Amul. ", h("a", { href: "/privacy" }, "Privacy"), " · ", h("a", { href: "/terms" }, "Terms")),
+  );
+}
+
 // ------------------------------------------------------------------ settings
 
 async function settingsView() {
@@ -800,7 +876,7 @@ function dailySeries(daily, now) {
 }
 
 async function adminView() {
-  const sections = [["monitor", "Monitor"], ["people", "People"], ["products", "Products"], ["activity", "Activity"]];
+  const sections = [["monitor", "Monitor"], ["people", "People"], ["products", "Products"], ["activity", "Activity"], ["inbox", "Inbox"]];
   const nav = h("div", { class: "seg admin-nav", role: "group", "aria-label": "Admin sections" }, sections.map(([k, label]) =>
     h("button", { type: "button", "aria-pressed": String(adminState.section === k), class: adminState.section === k ? "on" : "",
       onclick: () => { adminState.section = k; adminView(); } }, label)));
@@ -809,6 +885,7 @@ async function adminView() {
   try {
     if (adminState.section === "monitor") body.replaceChildren(...present(await monitorSection()));
     else if (adminState.section === "activity") body.replaceChildren(...present(await activitySection()));
+    else if (adminState.section === "inbox") body.replaceChildren(...present(await inboxSection()));
     else body.replaceChildren(...present(await peopleProductsSection(adminState.section)));
   } catch (x) {
     body.replaceChildren(h("div", { class: "card warn" }, x.message));
@@ -872,8 +949,27 @@ const KIND_LABEL = {
   signup: "Signed up", login: "Logged in", login_fail: "Login failed", login_blocked: "Login blocked", password_change: "Changed password",
   account_delete: "Deleted account", watch_add: "Added alert", watch_delete: "Deleted alert", watch_toggle: "Paused or resumed alert",
   settings: "Changed settings", device_add: "Turned on notifications", device_remove: "Removed a device", pincode_check: "Checked a pincode",
-  test_sent: "Test message", alert_sent: "Alert sent", alert_failed: "Alert not delivered", admin: "Admin action", poll_error: "Poller error", error: "Server error",
+  test_sent: "Test message", feedback: "Sent feedback", email: "Email", telegram: "Telegram", alert_sent: "Alert sent", alert_failed: "Alert not delivered", admin: "Admin action", poll_error: "Poller error", error: "Server error",
 };
+
+const FB_KIND = { question: "Question", suggestion: "Suggestion", bug: "Problem" };
+
+async function inboxSection() {
+  const { items } = await api("/api/admin/feedback");
+  const upd = (id, body) => once(async () => { await api(`/api/admin/feedback/${id}`, body); adminView(); });
+  const rows = items.map((f) => h("div", { class: `fb ${f.status === "done" ? "done" : ""}` },
+    h("div", {}, h("span", { class: `badge ${f.kind === "bug" ? "bad" : f.kind === "suggestion" ? "in" : "out"}` }, FB_KIND[f.kind] || f.kind), " ",
+      h("b", {}, f.username), h("span", { class: "muted small" }, ` · ${ago(f.created_at)}`)),
+    h("div", { class: "msg" }, f.message),
+    h("div", { class: "row" },
+      h("a", { class: "btn", href: `mailto:${encodeURIComponent(f.email)}?subject=${encodeURIComponent(`Re: your ${(FB_KIND[f.kind] || "message").toLowerCase()} on Back in Stock`)}` }, `Reply to ${f.email}`),
+      h("button", { type: "button", class: "ghost", onclick: upd(f.id, { status: f.status === "done" ? "new" : "done" }) }, f.status === "done" ? "Mark new" : "Mark done"),
+      h("button", { type: "button", class: "danger", onclick: once(async () => { if (!confirm("Delete this message?")) return; await api(`/api/admin/feedback/${f.id}`, { delete: true }); adminView(); }) }, "Delete"))));
+  const open = items.filter((f) => f.status !== "done").length;
+  return [h("div", { class: "card" }, h("h2", {}, `Inbox (${open} open)`),
+    h("p", { class: "small muted" }, "Questions and ideas from the Help page. You also get a notification on your own channels for each one."),
+    rows.length ? h("div", {}, rows) : h("div", { class: "muted small" }, "No messages yet."))];
+}
 
 async function activitySection() {
   const load = async (reset) => {
@@ -989,11 +1085,12 @@ function chrome() {
 async function render() {
   closeSheet();
   const route = location.hash.slice(2).split("?")[0];
-  if (!ME) { chrome(); return authView(route === "login" ? "login" : "signup"); }
+  if (!ME) { chrome(); return route === "help" ? helpView() : authView(route === "login" ? "login" : "signup"); }
   if (route === "login" || route === "signup") return go("#/");
   chrome();
   if (route === "setup") return setupView();
   if (route === "settings") return settingsView();
+  if (route === "help") return helpView();
   if (route === "admin" && ME.user.role === "admin") return adminView();
   return alertsView();
 }
@@ -1008,8 +1105,8 @@ window.addEventListener("hashchange", render);
     return show(h("div", { class: "page" }, h("div", { class: "card warn" }, h("b", {}, "Could not load your alerts. "), bootErr.message,
       h("button", { class: "primary wide", onclick: () => location.reload() }, "Try again"))));
   }
-  if (ME && !ME.watches.length && !location.hash.includes("settings") && !location.hash.includes("admin")) { location.hash = "#/setup"; }
-  if (!ME && !/^#\/(login|signup)/.test(location.hash)) { location.hash = "#/signup"; }
+  if (ME && !ME.watches.length && !/settings|admin|help/.test(location.hash)) { location.hash = "#/setup"; }
+  if (!ME && !/^#\/(login|signup|help)/.test(location.hash)) { location.hash = "#/signup"; }
   render();
   setInterval(async () => { if (ME && !document.hidden && (location.hash === "#/" || location.hash === "")) { await loadMe().catch(() => null); if (ME) alertsView(); } }, 60000);
 })();

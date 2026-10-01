@@ -30,7 +30,7 @@ async function readBody(req) {
   }
 }
 
-async function route(req, env) {
+async function route(req, env, ctx) {
   const url = new URL(req.url);
   const path = url.pathname;
   const method = req.method;
@@ -86,15 +86,19 @@ async function route(req, env) {
   m = path.match(/^\/api\/admin\/users\/(\d+)$/);
   if (m && method === "POST") return api.adminUser(env, user, m[1], body);
   if (path === "/api/admin/products" && method === "POST") return api.adminProduct(env, user, body);
+  if (path === "/api/feedback" && method === "POST") return api.sendFeedback(env, user, body, ctx);
+  if (path === "/api/admin/feedback" && method === "GET") return api.adminFeedback(env, user);
+  m = path.match(/^\/api\/admin\/feedback\/(\d+)$/);
+  if (m && method === "POST") return api.adminFeedbackUpdate(env, user, m[1], body);
   if (path === "/api/admin/monitor" && method === "GET") return api.adminMonitor(env, user);
   if (path === "/api/admin/events" && method === "GET") return api.adminEvents(env, user, Object.fromEntries(url.searchParams));
   throw new HttpError(404, "Not found.");
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     try {
-      return secure(await route(req, env));
+      return secure(await route(req, env, ctx));
     } catch (e) {
       if (e instanceof HttpError) return secure(json({ error: e.message }, e.status));
       console.error("unhandled", e && e.stack ? e.stack : e);

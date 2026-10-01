@@ -37,10 +37,10 @@ h2 { font-size: 18px; margin: 0 0 10px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-bottom: 14px; }
 
 label.f { display: block; font-weight: 650; font-size: 14px; margin: 14px 0 6px; }
-input[type=text], input[type=password], input[type=url], input[inputmode=numeric] {
+input[type=text], input[type=password], input[type=url], input[type=email], input[type=search], input[inputmode=numeric], textarea {
   width: 100%; font: inherit; font-size: 16px; padding: 12px 14px; border-radius: 11px; border: 1px solid var(--line);
   background: var(--panel2); color: var(--ink); }
-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
 .hint { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
 .err { color: var(--bad); font-size: 14px; margin-top: 10px; min-height: 1em; }
 
@@ -178,7 +178,8 @@ details.more summary { list-style: none; }
 details.more summary::-webkit-details-marker { display: none; }
 details.more summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
 details.more[open] summary::before { transform: rotate(90deg); }
-.seg.admin-nav { display: grid; grid-template-columns: repeat(4, 1fr); }
+.seg.admin-nav { display: grid; grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 520px) { .seg.admin-nav { grid-template-columns: repeat(3, 1fr); } }
 .seg.admin-nav button { padding: 7px 4px; }
 .chip::before { content: ""; position: absolute; inset: -5px 0; } /* 44 px tall tap area, gaps stay visual */
 .seg.admin-nav button { min-height: 44px; }
@@ -192,3 +193,10 @@ button[aria-busy="true"] { opacity: .6; cursor: progress; }
 .alert .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .btn.order { min-height: 32px; padding: 4px 12px; font-size: 14px; border-radius: 999px; background: var(--ok); color: var(--accent-ink); border-color: var(--ok); position: relative; }
 .btn.order::before { content: ""; position: absolute; inset: -6px -2px; } /* 44 px tap area */
+textarea { min-height: 120px; resize: vertical; line-height: 1.45; }
+.upi-img { display: block; width: min(260px, 100%); height: auto; margin: 12px auto; border-radius: 14px; border: 1px solid var(--line); }
+.fb { padding: 14px 0; border-top: 1px solid var(--line); }
+.fb:first-child { border-top: none; }
+.fb .msg { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 10px; }
+.fb.done { opacity: .6; }
+.linklist { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }

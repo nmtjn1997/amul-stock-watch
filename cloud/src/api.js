@@ -253,6 +253,49 @@ export async function emailRemove(env, user) {
   return json({ ok: true });
 }
 
+const FEEDBACK_KINDS = { question: "Question", suggestion: "Suggestion", bug: "Problem" };
+
+export async function sendFeedback(env, user, body, ctx) {
+  const kind = String(body.kind || "");
+  const email = String(body.email || "").trim().toLowerCase();
+  const message = String(body.message || "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").trim();
+  if (!FEEDBACK_KINDS[kind]) fail(400, "Pick question, suggestion or problem.");
+  if (!EMAIL_RE.test(email)) fail(400, "Add an email address so we can reply.");
+  if (message.length < 10) fail(400, "Write a little more (at least 10 characters).");
+  if (message.length > 2000) fail(400, "Keep it under 2,000 characters.");
+  if (!(await allow(env.DB, `feedback:${user.id}`, 3, 3600))) fail(429, "That is 3 messages this hour. Try again later.");
+  if (!(await allow(env.DB, "feedback-day", 50, 86400))) fail(429, "Lots of messages today. Please try again tomorrow.");
+  await env.DB.prepare("INSERT INTO feedback (user_id, username, email, kind, message, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(user.id, user.username || user.display_name, email, kind, message, now()).run();
+  await logEvent(env, { kind: "feedback", user, detail: `${FEEDBACK_KINDS[kind]}: ${message.slice(0, 80)}` });
+  // Tell the owner on their own channels, after answering; the message is already saved.
+  const ping = async () => {
+    const owner = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(ownerName(env)).first();
+    if (!owner) return;
+    await deliver(env, owner, {
+      kind: "feedback",
+      title: `New ${FEEDBACK_KINDS[kind].toLowerCase()} from ${user.username || user.display_name}`,
+      message: `${message.slice(0, 300)}\nReply to: ${email}`,
+      url: "",
+    });
+  };
+  ctx.waitUntil(ping().catch((e) => console.error("feedback ping", e.message)));
+  return json({ ok: true });
+}
+
+export async function adminFeedback(env, user) {
+  requireAdmin(user);
+  const items = (await env.DB.prepare("SELECT * FROM feedback ORDER BY created_at DESC LIMIT 100").all()).results;
+  return json({ items });
+}
+
+export async function adminFeedbackUpdate(env, user, id, body) {
+  requireAdmin(user);
+  if (body.delete) await env.DB.prepare("DELETE FROM feedback WHERE id = ?").bind(Number(id)).run();
+  else await env.DB.prepare("UPDATE feedback SET status = ? WHERE id = ?").bind(body.status === "done" ? "done" : "new", Number(id)).run();
+  return json({ ok: true });
+}
+
 export async function history(env, user) {
   const rows = (await env.DB.prepare(
     "SELECT ts, kind, product, pincodes, result FROM alert_log WHERE user_id = ? ORDER BY ts DESC LIMIT 30",
