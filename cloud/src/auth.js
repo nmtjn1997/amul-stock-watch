@@ -98,7 +98,7 @@ const clearCookie = `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age
 export async function signup(env, req, body) {
   const username = String(body.username || "").trim().toLowerCase();
   const password = body.password;
-  if (!USERNAME_RE.test(username)) fail(400, "Usernames are 3 to 20 characters: lowercase letters, digits or _.");
+  if (!USERNAME_RE.test(username)) fail(400, "Usernames are 3 to 64 characters: letters, digits and . _ @ + - (an email address works). No spaces.");
   checkPassword(password, username);
   const ip = clientIp(req);
   await preAuthGate(env, ip);

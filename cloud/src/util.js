@@ -80,7 +80,8 @@ export function cookieValue(req, name) {
   return "";
 }
 
-export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+// Lowercase letters, digits and . _ @ + - so an email address works as a username; no spaces.
+export const USERNAME_RE = /^[a-z0-9._@+-]{3,64}$/;
 export const PINCODE_RE = /^[1-9][0-9]{5}$/;
 export const ALIAS_RE = /^[a-z0-9-]{3,120}$/;
 

@@ -140,21 +140,21 @@ function authView(mode) {
   const err = h("div", { class: "err", role: "alert" });
   const params = new URLSearchParams((location.hash.split("?")[1] || ""));
   if (params.get("error")) err.textContent = AUTH_ERRORS[params.get("error")] || "Sign-in did not complete. Please try again.";
-  const user = h("input", { type: "text", id: "u", "aria-describedby": "u-hint", autocomplete: "username", autocapitalize: "none", spellcheck: "false", maxlength: "20", required: true });
+  const user = h("input", { type: "text", id: "u", "aria-describedby": "u-hint", autocomplete: "username", autocapitalize: "none", spellcheck: "false", maxlength: "64", required: true });
   const pass = h("input", { type: "password", id: "p", "aria-describedby": "p-hint", autocomplete: signup ? "new-password" : "current-password", maxlength: "128", required: true });
   const btn = h("button", { class: "primary wide", type: "submit" }, signup ? "Create account" : "Log in");
-  const uHint = h("div", { class: "hint", id: "u-hint" }, signup ? "3 to 20 characters: lowercase letters, digits or _. No email needed." : "");
+  const uHint = h("div", { class: "hint", id: "u-hint" }, signup ? "3 to 64 characters, no spaces. Letters, digits and . _ @ + - so your email works too." : "");
   const pHint = h("div", { class: "hint", id: "p-hint" }, signup ? "At least 8 characters." : "");
   const eye = h("button", { type: "button", class: "ghost eye", "aria-label": "Show password",
     onclick: () => { const showing = pass.type === "text"; pass.type = showing ? "password" : "text"; eye.textContent = showing ? "Show" : "Hide"; eye.setAttribute("aria-label", showing ? "Show password" : "Hide password"); } }, "Show");
   if (signup) {
     user.addEventListener("input", () => {
       user.value = user.value.toLowerCase().replace(/\s/g, "");
-      const ok = /^[a-z0-9_]{3,20}$/.test(user.value);
+      const ok = /^[a-z0-9._@+-]{3,64}$/.test(user.value);
       uHint.className = !user.value || ok ? "hint" : "hint bad";
       user.setAttribute("aria-invalid", String(Boolean(user.value) && !ok));
-      uHint.textContent = !user.value || ok ? "3 to 20 characters: lowercase letters, digits or _. No email needed."
-        : /[^a-z0-9_]/.test(user.value) ? "Only lowercase letters, digits and _ are allowed." : "Use 3 to 20 characters.";
+      uHint.textContent = !user.value || ok ? "3 to 64 characters, no spaces. Letters, digits and . _ @ + - so your email works too."
+        : /[^a-z0-9._@+-]/.test(user.value) ? "Only letters, digits and . _ @ + - are allowed." : "Use 3 to 64 characters.";
     });
     pass.addEventListener("input", () => {
       const n = pass.value.length;
@@ -175,7 +175,7 @@ function authView(mode) {
     onsubmit: async (e) => {
       e.preventDefault();
       err.textContent = "";
-      if (signup && !/^[a-z0-9_]{3,20}$/.test(user.value.trim())) { err.textContent = "Pick a username of 3 to 20 lowercase letters, digits or _."; user.focus(); return; }
+      if (signup && !/^[a-z0-9._@+-]{3,64}$/.test(user.value.trim())) { err.textContent = "Pick a username of 3 to 64 characters: letters, digits and . _ @ + -, no spaces."; user.focus(); return; }
       if (signup && pass.value.length < 8) { err.textContent = "The password needs at least 8 characters."; pass.focus(); return; }
       if (signup && CONFIG.turnstile && !humanToken) { err.textContent = "Please complete the \"Verify you are human\" check first."; return; }
       busy(btn, true, signup ? "Creating your account..." : "Logging in...");
