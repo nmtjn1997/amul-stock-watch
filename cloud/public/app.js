@@ -751,9 +751,13 @@ function helpView() {
         h("a", { href: `${REPO}/issues/new`, target: "_blank", rel: "noopener" }, "Report a bug or idea on GitHub ↗"),
         h("a", { href: `${REPO}/blob/main/docs/EXTENDING.md`, target: "_blank", rel: "noopener" }, "How to add a feature ↗"),
         h("a", { href: `${REPO}#readme`, target: "_blank", rel: "noopener" }, "Run your own copy ↗"))),
-    h("div", { class: "card" }, h("h2", {}, "Support the developer"), supportBox()),
+    h("div", { class: "card", id: "support" }, h("h2", {}, "Support the developer"), supportBox()),
     h("p", { class: "muted small" }, "Unofficial, not affiliated with Amul. ", h("a", { href: "/privacy" }, "Privacy"), " · ", h("a", { href: "/terms" }, "Terms")),
   );
+  if (new URLSearchParams(location.hash.split("?")[1] || "").get("to") === "support") {
+    const card = document.getElementById("support");
+    card.scrollIntoView({ block: "start" }); card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 1600);
+  }
 }
 
 // ------------------------------------------------------------------ settings
@@ -1098,6 +1102,7 @@ function chrome() {
   const signedIn = Boolean(ME);
   $("#tabs").hidden = !signedIn;
   $("#who").hidden = !signedIn;
+  $("#logoutBtn").hidden = !signedIn;
   if (signedIn) {
     $("#who").textContent = ME.user.name;
     $("#adminTab").hidden = ME.user.role !== "admin";
@@ -1124,6 +1129,7 @@ async function render() {
 }
 
 window.addEventListener("hashchange", render);
+$("#logoutBtn").addEventListener("click", once(async () => { await api("/api/logout", {}); ME = null; go("#/login"); toast("Logged out"); }));
 (async function boot() {
   let bootErr = null;
   const [cfg] = await Promise.all([api("/api/config").catch(() => null), loadMe().catch((x) => { bootErr = x; })]);
