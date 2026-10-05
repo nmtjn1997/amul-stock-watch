@@ -258,6 +258,22 @@ function productPicker(taken) {
   return box;
 }
 
+// The other channels, so a new person knows they exist; each opens its card in Settings.
+function moreChannelsCard() {
+  const u = ME.user;
+  const rows = [
+    u.alert_email === null ? null : ["email", "Email", "A mail to any address you confirm with a code."],
+    u.telegram === null ? null : ["telegram", "Telegram", "A message from our bot. One tap to link."],
+    ["ntfy", "ntfy app", "A free phone app for push alerts."],
+    ["chat", "Slack or Discord", "Post alerts into a channel you own."],
+  ].filter(Boolean);
+  return h("div", { class: "card" }, h("h2", {}, "More ways to get alerts"),
+    h("p", { class: "small muted" }, "Optional. Pick any, now or later in Settings. Every alert goes to all of them at once."),
+    h("div", { class: "list" }, rows.map(([k, name, text]) => h("div", { class: "li" },
+      h("div", { class: "main" }, h("div", {}, h("b", {}, name)), h("div", { class: "muted small" }, text)),
+      h("a", { class: "btn", href: `#/settings?to=${k}` }, "Set up")))));
+}
+
 function setupView() {
   const s = wizard.step;
   if (s === 1) {
@@ -301,6 +317,7 @@ function setupView() {
       h("h1", {}, "Where should we tell you?"),
       h("p", { class: "lead" }, "Turn on notifications and you will get a message the moment something is back. Nothing to install."),
       h("div", { class: "card" }, notifySetup(true)),
+      moreChannelsCard(),
       h("button", { class: "primary wide", onclick: () => go("#/") }, "Done, show my alerts"),
     ));
   }
@@ -766,13 +783,13 @@ async function settingsView() {
   show(
     channelsCard(),
     h("div", { class: "card" }, h("h2", {}, "Browser notifications"), notifySetup(false)),
-    u.alert_email === null ? null : h("div", { class: "card" }, h("h2", {}, "Email (optional)"), emailSetup()),
-    u.telegram === null ? null : h("div", { class: "card" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
-    h("div", { class: "card" }, h("h2", {}, "ntfy (optional)"), ntfySetup(),
+    u.alert_email === null ? null : h("div", { class: "card", id: "ch-email" }, h("h2", {}, "Email (optional)"), emailSetup()),
+    u.telegram === null ? null : h("div", { class: "card", id: "ch-telegram" }, h("h2", {}, "Telegram (optional)"), telegramSetup()),
+    h("div", { class: "card", id: "ch-ntfy" }, h("h2", {}, "ntfy (optional)"), ntfySetup(),
       h("details", { class: "more" }, h("summary", { class: "small" }, "Someone else knows my ntfy topic"),
         h("p", { class: "small muted" }, "Get a new private topic. You will need to subscribe to the new one in the ntfy app."),
         h("button", { onclick: once(async () => { if (!confirm("Replace your topic? The old one stops getting alerts.")) return; await api("/api/settings", { new_topic: true }); await loadMe(); render(); toast("New topic ready. Subscribe to it in ntfy."); }) }, "Get a new topic"))),
-    h("div", { class: "card" }, h("h2", {}, "Slack or Discord (optional)"),
+    h("div", { class: "card", id: "ch-chat" }, h("h2", {}, "Slack or Discord (optional)"),
       h("p", { class: "small muted" }, u.webhook ? `Connected to ${u.webhook}. Use "Send a test" above to check it.` : "Paste an incoming webhook URL to get alerts in a channel too."),
       h("details", { class: "more" }, h("summary", { class: "small" }, "How do I get a Discord webhook URL?"),
         h("ol", { class: "how small" },
@@ -797,6 +814,9 @@ async function settingsView() {
     h("div", { class: "card" }, h("h2", {}, "Account"),
       h("p", { class: "small muted" }, `Signed in as ${u.username || u.email || u.name}.`), ...account),
   );
+  const jump = new URLSearchParams(location.hash.split("?")[1] || "").get("to");
+  const target = jump && document.getElementById(`ch-${jump}`);
+  if (target) { target.scrollIntoView({ block: "start" }); target.classList.add("flash"); setTimeout(() => target.classList.remove("flash"), 1600); }
   try {
     const r = await api("/api/history");
     const row = (i) => h("div", { class: "li" },
