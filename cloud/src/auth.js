@@ -77,7 +77,13 @@ export async function currentUser(env, req) {
   )
     .bind(await sha256b64(token), now())
     .first();
-  return user || null;
+  if (!user) return null;
+  // "Last active" for the admin People list; one write per person per 5 minutes at most.
+  if (!user.last_seen_at || now() - user.last_seen_at > 300) {
+    user.last_seen_at = now();
+    await env.DB.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").bind(user.last_seen_at, user.id).run();
+  }
+  return user;
 }
 
 async function startSession(env, userId) {

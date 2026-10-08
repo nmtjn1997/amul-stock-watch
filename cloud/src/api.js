@@ -316,7 +316,7 @@ export async function adminOverview(env, user) {
   requireAdmin(user);
   const db = env.DB;
   const [users, watches, pairs, alerts24] = await db.batch([
-    db.prepare("SELECT id, username, email, display_name, role, disabled, created_at, last_login_at, (SELECT COUNT(*) FROM watches w WHERE w.user_id = users.id) AS watches FROM users ORDER BY created_at DESC"),
+    db.prepare("SELECT id, username, email, display_name, role, disabled, created_at, last_login_at, last_seen_at, (SELECT COUNT(*) FROM watches w WHERE w.user_id = users.id) AS watches FROM users ORDER BY COALESCE(last_seen_at, last_login_at, created_at) DESC"),
     db.prepare("SELECT COUNT(*) AS n FROM watches"),
     db.prepare("SELECT COUNT(*) AS n FROM (SELECT DISTINCT pincode, alias FROM watches WHERE enabled = 1)"),
     db.prepare("SELECT COUNT(*) AS n FROM alert_log WHERE kind = 'stock' AND ts > ?").bind(now() - 86400),

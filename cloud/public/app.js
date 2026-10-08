@@ -1048,13 +1048,19 @@ async function peopleProductsSection(which) {
     catch (x) { alert(x.message); }
   };
   if (which === "people") {
+    const t = Date.now() / 1000;
+    const seen = (u) => u.last_seen_at || u.last_login_at || 0;
     const users = d.users.map((u) => {
       const owner = u.username === d.owner;
+      const s = seen(u);
+      const live = s && t - s < 900;
       return h("div", { class: "li" },
         h("div", { class: "main" },
           h("div", {}, h("b", {}, u.display_name), " ", h("span", { class: "muted small" }, u.username ? `@${u.username}` : u.email || ""), " ",
             owner ? h("span", { class: "pill admin" }, "owner") : u.role === "admin" ? h("span", { class: "pill admin" }, "admin") : null,
             u.disabled ? h("span", { class: "pill off" }, "disabled") : null),
+          h("div", { class: "small" }, h("span", { class: `dotstat ${live ? "ok" : "idle"}` }), live ? h("b", {}, "Active now") : `Last active ${s ? ago(s) : "never"}`,
+            s ? h("span", { class: "muted" }, ` · ${new Date(s * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`) : null),
           h("div", { class: "muted small" }, `${u.watches} alerts, joined ${ago(u.created_at)}, last login ${ago(u.last_login_at)}`)),
         owner || u.id === ME.user.id ? h("span", { class: "muted small" }, u.id === ME.user.id ? "you" : "protected") : h("div", { class: "row" },
           h("button", { onclick: act(u.id, { disabled: !u.disabled }) }, u.disabled ? "Enable" : "Disable"),
@@ -1062,7 +1068,8 @@ async function peopleProductsSection(which) {
           h("button", { class: "danger", onclick: act(u.id, { delete: true }, `Delete ${u.display_name} and all their alerts? This cannot be undone.`) }, "Delete")));
     });
     return [h("div", { class: "card" }, h("h2", {}, `People (${c.users} of ${c.max_users})`),
-      h("p", { class: "small muted" }, `${c.watches} alerts in total, ${c.pairs} distinct pincode and product checks.`), h("div", { class: "list" }, users))];
+      h("p", { class: "small" }, `Active in the last 15 min: ${d.users.filter((u) => t - seen(u) < 900).length} · today: ${d.users.filter((u) => t - seen(u) < 86400).length} · this week: ${d.users.filter((u) => t - seen(u) < 7 * 86400).length}`),
+      h("p", { class: "small muted" }, `${c.watches} alerts in total, ${c.pairs} distinct pincode and product checks. Sorted by last active.`), h("div", { class: "list" }, users))];
   }
   const purl = h("input", { type: "url", placeholder: "https://shop.amul.com/en/product/...", id: "purl" });
   const plabel = h("input", { type: "text", placeholder: "Short name people will see", id: "plabel", maxlength: "80" });
