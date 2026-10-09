@@ -61,11 +61,14 @@ export class AmulClient {
     }
   }
 
-  async save() {
-    await this.db
+  saveStmt() {
+    return this.db
       .prepare("INSERT INTO meta (key, value) VALUES ('amul_jar', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .bind(JSON.stringify({ jar: this.jar, pin: this.activePin }))
-      .run();
+      .bind(JSON.stringify({ jar: this.jar, pin: this.activePin }));
+  }
+
+  async save() {
+    await this.saveStmt().run();
   }
 
   spend() {

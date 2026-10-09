@@ -33,16 +33,22 @@ async function getMeta(db, key, fallback) {
   }
 }
 
+const metaStmt = (db, key, value) =>
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .bind(key, JSON.stringify(value));
+
 async function setMeta(db, key, value) {
-  await db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .bind(key, JSON.stringify(value)).run();
+  await metaStmt(db, key, value).run();
 }
 
-async function recordRun(db, s, amulRequests, notifyRequests, ms) {
-  await db.prepare(
+const runStmt = (db, s, amulRequests, notifyRequests, ms) =>
+  db.prepare(
     `INSERT INTO runs (ts, units_total, pincodes, checks, amul_requests, notify_requests, alerts, errors, ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(s.ts, s.pincodes_total, s.pincodes, s.checks, amulRequests, notifyRequests, s.alerts, JSON.stringify(s.errors.slice(0, 10)), ms).run();
+  ).bind(s.ts, s.pincodes_total, s.pincodes, s.checks, amulRequests, notifyRequests, s.alerts, JSON.stringify(s.errors.slice(0, 10)), ms);
+
+async function recordRun(db, s, amulRequests, notifyRequests, ms) {
+  await runStmt(db, s, amulRequests, notifyRequests, ms).run();
 }
 
 export async function zoneFor(env, client, pincode) {
@@ -110,6 +116,7 @@ export async function runPoll(env) {
   client.gapMs = Math.min(MAX_GAP_MS, Math.max(GAP_MS, Math.floor(SPREAD_MS / expected)));
   await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 5000)));
   const fresh = []; // pairs now in stock, to alert on
+  const writes = [];
 
   for (let visited = 0; visited < Math.min(pins.length, UNITS_PER_RUN); visited++) {
     const items = byPin.get(pins[cursor]);
@@ -128,36 +135,39 @@ export async function runPoll(env) {
           continue;
         }
         const s = parseStock(raw);
-        const prev = await db.prepare("SELECT in_stock, qty FROM stock WHERE pincode = ? AND alias = ?").bind(pin, item.alias).first();
-        if (!prev || prev.in_stock !== Number(s.inStock) || prev.qty !== s.qty) {
-          await db.prepare(
-            `INSERT INTO stock (pincode, alias, in_stock, qty, price, changed_at) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(pincode, alias) DO UPDATE SET in_stock = excluded.in_stock, qty = excluded.qty,
-               price = excluded.price, changed_at = excluded.changed_at`,
-          ).bind(pin, item.alias, Number(s.inStock), s.qty, s.price, now()).run();
-        }
+        // Writes are queued and sent in one batch per run: every D1 round trip costs CPU,
+        // and the free plan allows 10 ms per run.
+        writes.push(db.prepare(
+          `INSERT INTO stock (pincode, alias, in_stock, qty, price, changed_at) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(pincode, alias) DO UPDATE SET in_stock = excluded.in_stock, qty = excluded.qty,
+             price = excluded.price, changed_at = excluded.changed_at
+           WHERE stock.in_stock != excluded.in_stock OR stock.qty != excluded.qty`,
+        ).bind(pin, item.alias, Number(s.inStock), s.qty, s.price, now()));
         if (s.inStock) fresh.push({ ...item, qty: s.qty, price: s.price });
-        else await db.prepare("UPDATE watches SET alerted = 0 WHERE pincode = ? AND alias = ? AND alerted = 1").bind(pin, item.alias).run();
+        else writes.push(db.prepare("UPDATE watches SET alerted = 0 WHERE pincode = ? AND alias = ? AND alerted = 1").bind(pin, item.alias));
       }
     } catch (e) {
       summary.errors.push(`${pin}: ${e.message}`);
       if (budget.left <= 0) break;
     }
   }
-  await setMeta(db, "poll_cursor", cursor);
-  await client.save();
+  writes.push(metaStmt(db, "poll_cursor", cursor), client.saveStmt());
+  await db.batch(writes);
   const amulRequests = BUDGET - budget.left;
   let notifyRequests = 0;
 
   // Alerts: one message per person per product, listing every pincode that came back.
   const pending = new Map();
+  // One query for every in-stock pair of this run, instead of one per pair.
+  const waiting = fresh.length
+    ? (await db.prepare(
+      `SELECT w.id, w.user_id, w.pincode, w.alias FROM watches w JOIN users u ON u.id = w.user_id
+       WHERE w.pincode IN (${[...new Set(fresh.map((f) => f.pincode))].map(() => "?").join(",")})
+         AND w.enabled = 1 AND w.alerted = 0 AND u.disabled = 0`,
+    ).bind(...new Set(fresh.map((f) => f.pincode))).all()).results
+    : [];
   for (const f of fresh) {
-    const rows = (
-      await db.prepare(
-        `SELECT w.id, w.user_id FROM watches w JOIN users u ON u.id = w.user_id
-         WHERE w.pincode = ? AND w.alias = ? AND w.enabled = 1 AND w.alerted = 0 AND u.disabled = 0`,
-      ).bind(f.pincode, f.alias).all()
-    ).results;
+    const rows = waiting.filter((r) => r.pincode === f.pincode && r.alias === f.alias);
     for (const r of rows) {
       const key = `${r.user_id}|${f.alias}`;
       if (!pending.has(key)) pending.set(key, { userId: r.user_id, label: f.label, alias: f.alias, pins: [], where: [], ids: [], price: f.price });
@@ -205,8 +215,7 @@ export async function runPoll(env) {
   summary.errors = summary.errors.slice(0, 10);
   summary.ms = Date.now() - started * 1000;
   summary.amul_requests = amulRequests;
-  await setMeta(db, "last_run", summary);
-  await recordRun(db, summary, amulRequests, notifyRequests, summary.ms);
+  await db.batch([metaStmt(db, "last_run", summary), runStmt(db, summary, amulRequests, notifyRequests, summary.ms)]);
   if (summary.errors.length && !summary.checks) {
     await logEvent(env, { level: "error", kind: "poll_error", actor: "system", detail: summary.errors.slice(0, 3).join("; ") });
   }
