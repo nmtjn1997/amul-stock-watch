@@ -228,3 +228,16 @@ the local runtime can reach the shop.
 Password hashes live only in `users.pass_hash` and never leave the Worker: every API
 response is built from named fields. Each hash is PBKDF2 over an HMAC with the
 `PASSWORD_PEPPER` secret, so a copy of the database is useless without that secret.
+
+## Help page sections
+
+Two flags in `cloud/wrangler.toml` control the Help page:
+
+| Flag | Shows | Default |
+|---|---|---|
+| `SHOW_OPEN_SOURCE` | the Open source card and the GitHub links (`REPO_URL`) | `"false"` |
+| `SHOW_SUPPORT` | the Support card, the header Support button and the UPI QR (`UPI_ID`, `UPI_NAME`) | `"false"` |
+
+Set either to `"true"` and run `npx wrangler deploy` to show it again. While a flag is off,
+its links and payment details are not sent to the browser at all and `/upi-qr.png`
+returns 404.

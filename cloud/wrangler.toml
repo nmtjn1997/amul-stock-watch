@@ -32,6 +32,13 @@ namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
 [vars]
+# Help page sections. "true" shows them; anything else hides them, and their links and
+# payment details are then left out of what the browser receives (the QR returns 404).
+SHOW_OPEN_SOURCE = "false"
+SHOW_SUPPORT = "false"
+REPO_URL = "https://github.com/nmtjn1997/amul-stock-watch"
+UPI_ID = "nmtjn1997@okhdfcbank"
+UPI_NAME = "Namit Jain"
 MAX_USERS = "100"
 MAX_WATCHES_PER_USER = "10"
 MAX_PINCODES_PER_USER = "3"

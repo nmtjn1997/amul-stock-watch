@@ -207,7 +207,7 @@ function authView(mode) {
         h("a", { href: signup ? "#/login" : "#/signup" }, signup ? "Log in" : "Create an account")),
     ),
     h("p", { class: "muted small" }, "Unofficial, not affiliated with Amul. It never logs in to Amul or buys anything. ",
-      h("a", { href: "https://github.com/nmtjn1997/amul-stock-watch" }, "Open source"), ". ", h("a", { href: "#/help" }, "Help and support"), "."),
+      CONFIG.repo ? [h("a", { href: CONFIG.repo }, "Open source"), ". "] : null, h("a", { href: "#/help" }, "Help and support"), "."),
   ));
   setTimeout(() => user.focus(), 50);
 }
@@ -682,13 +682,11 @@ function addSheet() {
 
 // ------------------------------------------------------------------ help and support
 
-const REPO = "https://github.com/nmtjn1997/amul-stock-watch";
-const UPI_ID = "nmtjn1997@okhdfcbank";
 
 function feedbackForm() {
   if (!ME) {
-    return h("p", { class: "small" }, h("a", { href: "#/login" }, "Log in"), " to send a question or idea, or open an issue on ",
-      h("a", { href: `${REPO}/issues/new`, target: "_blank", rel: "noopener" }, "GitHub"), ".");
+    return h("p", { class: "small" }, h("a", { href: "#/login" }, "Log in"), " to send a question or idea",
+      CONFIG.repo ? [", or open an issue on ", h("a", { href: `${CONFIG.repo}/issues/new`, target: "_blank", rel: "noopener" }, "GitHub")] : null, ".");
   }
   let kind = "question";
   const kinds = [["question", "Question"], ["suggestion", "Suggestion"], ["bug", "Problem"]];
@@ -717,6 +715,7 @@ function feedbackForm() {
 }
 
 function supportBox() {
+  const { upi: UPI_ID, name: UPI_NAME } = CONFIG.support;
   const out = h("div", {});
   const btn = h("button", { type: "button", class: "ghost", "aria-expanded": "false", onclick: () => {
     const open = btn.getAttribute("aria-expanded") !== "true";
@@ -730,7 +729,7 @@ function supportBox() {
     } }, "Pay with a UPI app");
     amount.addEventListener("input", () => {
       const n = Number(String(amount.value).replace(/[^0-9]/g, ""));
-      pay.href = n >= 1 && n <= 100000 ? "upi://pay?" + new URLSearchParams({ pa: UPI_ID, pn: "Namit Jain", am: String(n), cu: "INR", tn: "Back in Stock" }) : "#";
+      pay.href = n >= 1 && n <= 100000 ? "upi://pay?" + new URLSearchParams({ pa: UPI_ID, pn: UPI_NAME, am: String(n), cu: "INR", tn: "Back in Stock" }) : "#";
     });
     out.replaceChildren(
       h("img", { class: "upi-img", src: "upi-qr.png", width: "560", height: "642", alt: `UPI QR code for ${UPI_ID}` }),
@@ -744,19 +743,19 @@ function helpView() {
   show(
     h("div", { class: "card" }, h("h2", {}, "Ask, suggest or report a problem"),
       h("p", { class: "small muted" }, "Questions, feature ideas, a product to add, or something not working. I reply by email."), feedbackForm()),
-    h("div", { class: "card" }, h("h2", {}, "Open source"),
+    !CONFIG.repo ? null : h("div", { class: "card" }, h("h2", {}, "Open source"),
       h("p", { class: "small" }, "The whole app is open source. You can read the code, run your own copy, or improve it and send a pull request."),
       h("div", { class: "linklist small" },
-        h("a", { href: REPO, target: "_blank", rel: "noopener" }, "Code on GitHub ↗"),
-        h("a", { href: `${REPO}/issues/new`, target: "_blank", rel: "noopener" }, "Report a bug or idea on GitHub ↗"),
-        h("a", { href: `${REPO}/blob/main/docs/EXTENDING.md`, target: "_blank", rel: "noopener" }, "How to add a feature ↗"),
-        h("a", { href: `${REPO}#readme`, target: "_blank", rel: "noopener" }, "Run your own copy ↗"))),
-    h("div", { class: "card", id: "support" }, h("h2", {}, "Support the developer"), supportBox()),
+        h("a", { href: CONFIG.repo, target: "_blank", rel: "noopener" }, "Code on GitHub ↗"),
+        h("a", { href: `${CONFIG.repo}/issues/new`, target: "_blank", rel: "noopener" }, "Report a bug or idea on GitHub ↗"),
+        h("a", { href: `${CONFIG.repo}/blob/main/docs/EXTENDING.md`, target: "_blank", rel: "noopener" }, "How to add a feature ↗"),
+        h("a", { href: `${CONFIG.repo}#readme`, target: "_blank", rel: "noopener" }, "Run your own copy ↗"))),
+    !CONFIG.support ? null : h("div", { class: "card", id: "support" }, h("h2", {}, "Support the developer"), supportBox()),
     h("p", { class: "muted small" }, "Unofficial, not affiliated with Amul. ", h("a", { href: "/privacy" }, "Privacy"), " · ", h("a", { href: "/terms" }, "Terms")),
   );
   if (new URLSearchParams(location.hash.split("?")[1] || "").get("to") === "support") {
     const card = document.getElementById("support");
-    card.scrollIntoView({ block: "start" }); card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 1600);
+    if (card) { card.scrollIntoView({ block: "start" }); card.classList.add("flash"); setTimeout(() => card.classList.remove("flash"), 1600); }
   }
 }
 
@@ -1110,6 +1109,7 @@ function chrome() {
   $("#tabs").hidden = !signedIn;
   $("#who").hidden = !signedIn;
   $("#logoutBtn").hidden = !signedIn;
+  $("#supportBtn").hidden = !CONFIG.support;
   if (signedIn) {
     $("#who").textContent = ME.user.name;
     $("#adminTab").hidden = ME.user.role !== "admin";

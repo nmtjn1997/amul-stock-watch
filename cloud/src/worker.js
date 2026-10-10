@@ -40,6 +40,7 @@ async function route(req, env, ctx) {
   if (path === "/healthz") return json({ ok: true });
   if (path === "/telegram/hook" && method === "POST") return telegram.hook(env, req);
 
+  if (path === "/upi-qr.png" && env.SHOW_SUPPORT !== "true") throw new HttpError(404, "Not found.");
   if (!path.startsWith("/api/")) {
     // Static app; unknown paths fall back to the single page.
     const res = await env.ASSETS.fetch(req);
@@ -58,6 +59,8 @@ async function route(req, env, ctx) {
       turnstile: env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY || null : null,
       vapid: env.VAPID_PRIVATE_JWK ? env.VAPID_PUBLIC_KEY || null : null,
       max_watches: Number(env.MAX_WATCHES_PER_USER || 10),
+      repo: env.SHOW_OPEN_SOURCE === "true" ? env.REPO_URL || null : null,
+      support: env.SHOW_SUPPORT === "true" && env.UPI_ID ? { upi: env.UPI_ID, name: env.UPI_NAME || "" } : null,
     });
   }
 
