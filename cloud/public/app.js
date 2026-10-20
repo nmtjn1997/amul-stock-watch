@@ -589,7 +589,8 @@ const when = (ts) => new Date(ts * 1000).toLocaleString([], { day: "numeric", mo
 function stockHistory(w) {
   const ins = w.restocks || [], outs = w.sellouts || [];
   if (!ins.length && !outs.length) return null;
-  const qty = (r) => (r.qty ? ` · ${r.qty} came in` : "");
+  // Restocks before stock history existed came from alert times and have no count.
+  const qty = (r) => (r.qty ? ` · ${r.qty} came in` : r.qty === null ? " · count not recorded" : "");
   const col = (title, rows) => h("div", {}, h("div", { class: "hist-h" }, title),
     rows.length ? rows.map((r) => h("div", { class: "hist-r" }, r)) : h("div", { class: "hist-r muted" }, "none yet"));
   return h("details", { class: "hist" },
