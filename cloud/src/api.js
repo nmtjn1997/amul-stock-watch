@@ -37,16 +37,27 @@ function publicUser(u, env) {
 }
 
 async function myWatches(env, user) {
-  return (
-    await env.DB.prepare(
+  const [watches, events] = await Promise.all([
+    env.DB.prepare(
       `SELECT w.id, w.pincode, w.alias, w.enabled, p.label, p.enabled AS product_enabled,
               s.in_stock, s.qty, s.price, s.changed_at, z.store, z.valid, p.sort
        FROM watches w JOIN products p ON p.alias = w.alias
        LEFT JOIN stock s ON s.pincode = w.pincode AND s.alias = w.alias
        LEFT JOIN zones z ON z.pincode = w.pincode
        WHERE w.user_id = ? ORDER BY w.pincode, p.sort, p.label`,
-    ).bind(user.id).all()
-  ).results;
+    ).bind(user.id).all(),
+    // The last 3 restocks and the last 3 sell-outs of every watched pair.
+    env.DB.prepare(
+      `SELECT pincode, alias, ts, in_stock, qty FROM (
+         SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.pincode, e.alias, e.in_stock ORDER BY e.ts DESC) AS rn
+         FROM stock_events e JOIN watches w ON w.pincode = e.pincode AND w.alias = e.alias WHERE w.user_id = ?)
+       WHERE rn <= 3 ORDER BY ts DESC`,
+    ).bind(user.id).all(),
+  ]);
+  return watches.results.map((w) => {
+    const mine = events.results.filter((e) => e.pincode === w.pincode && e.alias === w.alias);
+    return { ...w, restocks: mine.filter((e) => e.in_stock).map((e) => ({ ts: e.ts, qty: e.qty })), sellouts: mine.filter((e) => !e.in_stock).map((e) => e.ts) };
+  });
 }
 
 async function lastRun(env) {

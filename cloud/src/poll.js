@@ -225,6 +225,7 @@ export async function runPoll(env) {
       db.prepare("DELETE FROM rate WHERE window_start < ?").bind(now() - 86400),
       db.prepare("DELETE FROM alert_log WHERE ts < ?").bind(now() - 30 * 86400),
       db.prepare("DELETE FROM runs WHERE ts < ?").bind(now() - 7 * 86400),
+      db.prepare("DELETE FROM stock_events WHERE ts < ?").bind(now() - 180 * 86400),
       db.prepare("DELETE FROM events WHERE ts < ?").bind(now() - 30 * 86400),
     ]);
   }

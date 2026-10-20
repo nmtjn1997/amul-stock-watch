@@ -216,3 +216,12 @@ textarea { min-height: 120px; resize: vertical; line-height: 1.45; }
   .tabs { gap: 0; }
   .tabs a { padding: 10px 9px; font-size: 15px; }
 }
+.alert .hist { grid-column: 1 / -1; font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+.alert .hist summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; gap: 6px; list-style: none; }
+.alert .hist summary::-webkit-details-marker { display: none; }
+.alert .hist summary::before { content: "▸"; transition: transform .15s; }
+.alert .hist[open] summary::before { transform: rotate(90deg); }
+.hist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; padding: 6px 0 2px 14px; }
+.hist-h { font-weight: 650; color: var(--ink); margin-bottom: 2px; }
+.hist-r { font-variant-numeric: tabular-nums; }
+@media (max-width: 380px) { .hist-grid { grid-template-columns: 1fr; } }

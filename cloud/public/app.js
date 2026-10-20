@@ -583,6 +583,23 @@ function ntfySetup() {
 
 // ------------------------------------------------------------------ my alerts
 
+const when = (ts) => new Date(ts * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// Last 3 restocks (with the quantity it came back with) and last 3 sell-outs at this pincode.
+function stockHistory(w) {
+  const ins = w.restocks || [], outs = w.sellouts || [];
+  if (!ins.length && !outs.length) return null;
+  const qty = (r) => (r.qty ? ` · ${r.qty} came in` : "");
+  const col = (title, rows) => h("div", {}, h("div", { class: "hist-h" }, title),
+    rows.length ? rows.map((r) => h("div", { class: "hist-r" }, r)) : h("div", { class: "hist-r muted" }, "none yet"));
+  return h("details", { class: "hist" },
+    h("summary", {}, ins[0] ? `Last in ${ago(ins[0].ts)}${ins[0].qty ? ` (${ins[0].qty})` : ""}` : "Not back in stock yet",
+      outs[0] ? ` · Last out ${ago(outs[0])}` : ""),
+    h("div", { class: "hist-grid" },
+      col("Back in stock", ins.map((r) => `${when(r.ts)}${qty(r)}`)),
+      col("Sold out", outs.map((t) => when(t)))));
+}
+
 const shopUrl = (alias) => `https://shop.amul.com/en/product/${encodeURIComponent(alias)}`;
 
 function status(w) {
@@ -618,6 +635,7 @@ function alertsView() {
       h("div", { class: "acts" }, sw, del),
       h("div", { class: "meta" }, status(w), h("span", { class: "nowrap" }, `${w.pincode}${w.store ? ` · ${title(w.store)}` : ""}`),
         w.in_stock && w.product_enabled ? h("a", { class: "btn order", href: shopUrl(w.alias), target: "_blank", rel: "noopener", "aria-label": `Order ${w.label} on the Amul shop` }, "Order ↗") : null),
+      stockHistory(w),
     ));
   }
   const channels = [];
